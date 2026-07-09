@@ -1,0 +1,26 @@
+---
+trigger: model_decision
+description: Java 异常处理规范，定义全局异常处理、异常类型映射和统一响应格式
+---
+
+# Java 异常处理规范
+
+## 全局异常处理
+
+- 统一使用 @RestControllerAdvice 全局捕获异常
+- Controller 层不允许出现 try-catch，全部交给全局处理器
+- Business 层抛业务异常，由全局处理器统一转换 HTTP 状态码
+
+## 异常类型
+
+| 异常 | HTTP 状态码 | 场景 |
+|------|-------------|------|
+| IllegalArgumentException | 400 Bad Request | 参数校验失败 |
+| ResourceNotFoundException | 404 Not Found | 资源不存在 |
+| RuntimeException | 500 Internal Server Error | 未知错误 |
+
+## 规范
+
+- 不允许在 Controller 中捕获异常
+- Service 层抛异常时使用业务相关异常类型
+- 全局异常处理器返回统一 JSON 格式：{ "code": xxx, "message": "xxx" }

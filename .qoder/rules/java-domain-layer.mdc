@@ -1,0 +1,110 @@
+---
+trigger: model_decision
+description: Domain 层开发规范，涉及 Entity 命名、BaseEntity、分页对象、Repository 编写时激活
+---
+
+# Domain 层规范
+
+## 包结构
+
+```
+com.tutorial.offerpilot
+├── common/            # 公共基础类（BaseEntity、ApiResponse、PageRequest）
+├── entity/            # JPA 实体（与数据库表一一对应）
+├── repository/        # Spring Data JPA Repository 接口
+├── dto/               # 请求/响应 DTO
+└── converter/         # Entity ↔ DTO 转换
+```
+
+## Entity 命名
+
+- 所有 Entity 使用业务名称（如 `AppUser`、`KbKnowledgeBase`）
+- Entity 与数据库表一一对应，放在 `entity` 包
+- Entity 必须继承 `BaseEntity`（或使用 JPA `@MappedSuperclass`）
+
+| 数据库表 | Entity 类名 |
+|----------|-------------|
+| app_user | `AppUser` |
+| kb_knowledge_base | `KbKnowledgeBase` |
+| user_memory | `UserMemory` |
+
+## BaseEntity
+
+- 定义在 `com.tutorial.offerpilot.common.BaseEntity`
+- 包含 `id`、`createdAt`、`updatedAt`、`createBy`、`updateBy` 五个公共字段
+- 所有 Entity 必须继承 BaseEntity，禁止重复定义这五个字段
+- 使用 JPA `@MappedSuperclass` + `@EntityListeners(AuditingEntityListener.class)` 实现审计
+
+```java
+@MappedSuperclass
+@EntityListeners(AuditingEntityListener.class)
+public abstract class BaseEntity {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @CreatedDate
+    private Long createdAt;
+
+    @LastModifiedDate
+    private Long updatedAt;
+
+    private String createBy;
+    private String updateBy;
+    // getter / setter
+}
+```
+
+## 分页对象
+
+- 定义在 `com.tutorial.offerpilot.common` 包
+- `PageRequest`：分页请求参数（pageNo、pageSize）
+- Spring Data `Page<T>` / `Pageable`：分页返回结果
+
+## 复杂查询（JPA @Query / Native Query）
+
+- 复杂查询（多表关联、聚合统计等）使用 JPA `@Query` 或 Native SQL
+- 查询结果可使用 Projection Interface 或 DTO 接收
+- 不继承 BaseEntity，字段按查询需要自由组合
+
+### 查询方法命名规则
+
+当查询涉及复杂逻辑时：
+
+| 维度 | 规则 | 示例 |
+|------|------|------|
+| 方法名 | 描述性命名 | `findPublicOrOwnedBy`、`countByKnowledgeBaseId` |
+| JPQL/Native | 使用 `@Query` | `@Query("SELECT k FROM KbKnowledgeBase k WHERE k.visibility = 'PUBLIC' OR k.ownerId = :userId")` |
+| Projection | 接口或 DTO | `KbStatsResponse` |
+
+```java
+// ✅ Projection Interface：复杂查询的轻量结果
+public interface KbStatsResponse {
+    Long getKnowledgeBaseId();
+    String getName();
+    Long getDocumentCount();
+}
+
+// ✅ Repository：JPQL 查询
+public interface KnowledgeBaseRepository extends JpaRepository<KbKnowledgeBase, Long> {
+    @Query("SELECT k FROM KbKnowledgeBase k WHERE k.visibility = 'PUBLIC' OR k.ownerId = :userId")
+    List<KbKnowledgeBase> findPublicOrOwnedBy(@Param("userId") Long userId);
+}
+```
+
+## Repository 规范
+
+- 所有 Repository 放在 `repository` 包
+- 继承 `JpaRepository<Entity, Long>` 获得标准 CRUD 能力
+- 自定义查询使用 Spring Data 方法命名约定 或 `@Query` 注解
+- Repository 接口命名：`{Entity名}Repository`
+  - 例：`AppUser` → `AppUserRepository`
+  - 例：`KbKnowledgeBase` → `KnowledgeBaseRepository`
+
+## 禁止行为
+
+- ❌ 禁止 Entity 不继承 BaseEntity（特殊场景除外）
+- ❌ 禁止在 Entity 中重复定义 id / createdAt / updatedAt / createBy / updateBy（必须继承 BaseEntity）
+- ❌ 禁止在 entity 包放置非数据库映射的类
+- ❌ 禁止 Repository 中包含业务逻辑（仅声明查询方法）
+- ❌ 禁止 Domain 层引用 controller 层或 service 层的任何类

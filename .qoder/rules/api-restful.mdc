@@ -1,0 +1,27 @@
+---
+trigger: always_on
+description: RESTful API 设计规范，定义 URL 命名、HTTP 方法映射和响应格式标准
+---
+
+# RESTful API 设计规范
+
+## URL 命名
+
+- 使用小写字母 + 中划线：`/api/memory-items` 而非 `/api/memoryItems`
+- 路径参数：`/api/memory-items/{id}`
+- 版本控制：`/api/v1/memory-items`（当前无版本，统一用 `/api/`）
+
+## HTTP 方法对应
+
+| 操作 | HTTP 方法 | URL |
+|------|-----------|-----|
+| 列表查询 | GET | /api/{resources} |
+| 单条查询 | GET | /api/{resources}/{id} |
+| 新增 | POST | /api/{resources} |
+| 更新 | PUT | /api/{resources}/{id} |
+| 删除 | DELETE | /api/{resources}/{id} |
+
+## 响应格式
+
+- 成功：直接返回数据对象或列表
+- 失败：全局异常处理器返回 `{ "code": xxx, "message": "xxx" }`

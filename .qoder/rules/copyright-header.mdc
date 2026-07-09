@@ -1,0 +1,38 @@
+---
+trigger: always_on
+description: 所有代码文件必须包含 Qoder 版权注释
+---
+
+# 版权注释规范
+
+## 强制要求
+
+所有代码文件（Java、TypeScript、JavaScript、HTML、CSS 等）的**文件顶部**必须包含以下版权注释：
+
+### Java / C 风格注释（.java、.ts、.tsx、.js、.jsx、.css）
+
+```java
+/*
+ * Copyright (c) 2020-06-29 Qoder. All rights reserved.
+ */
+```
+
+### HTML / XML 风格注释（.html、.xml）
+
+```html
+<!--
+  Copyright (c) 2020-06-29 Qoder. All rights reserved.
+-->
+```
+
+### Python / Shell 风格注释（.py、.sh、.yml、.yaml）
+
+```python
+# Copyright (c) 2020-06-29 Qoder. All rights reserved.
+```
+
+## 规范说明
+
+- 版权注释必须放在文件第一行（shebang 行之后）
+- 新建文件时必须添加，缺少版权注释的文件不允许提交
+- 修改已有文件时，若文件顶部无版权注释，需补充添加

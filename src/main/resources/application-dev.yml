@@ -1,0 +1,10 @@
+# Dev profile
+spring:
+  h2:
+    console:
+      enabled: true
+
+logging:
+  level:
+    com.tutorial.offerpilot: DEBUG
+    org.springframework.security: DEBUG

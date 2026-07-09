@@ -1,0 +1,90 @@
+---
+trigger: model_decision
+description: Service 层开发规范，涉及业务方法签名、参数类型、返回类型、元组使用时激活
+---
+
+# Service 层规范
+
+## 方法签名
+
+- 方法参数必须是**基础类型**（`Long`/`String`/`Integer`/`Boolean`/`List<Long>` 等）
+- 返回类型必须是**基础类型**、**Entity 对象**、**DTO 对象**或 **Tuple 类型**（`Tuple2` ~ `Tuple16`）
+- Service 层**禁止定义任何数据对象**（无 DTO、无 VO、无自定义返回类）
+
+## 基础类型定义
+
+以下类型视为基础类型，可直接用于参数和返回值：
+
+| 类别 | 类型 |
+|------|------|
+| 整型 | `Long`, `Integer`, `Short`, `Byte` |
+| 浮点 | `Double`, `Float` |
+| 字符 | `String`, `Character` |
+| 布尔 | `Boolean` |
+| 日期 | `LocalDate`, `LocalDateTime` |
+| 集合 | `List<Long>`, `List<String>` 等（元素必须是基础类型） |
+
+## Tuple 返回类型
+
+当方法需要返回多个值时，使用 `Tuple` 类型代替自定义 DTO：
+
+```java
+// ✅ 正确：使用 Tuple 返回多值
+public Tuple2<String, Integer> findUserNameAndAge(Long userId) { ... }
+
+// ✅ 正确：Tuple 元素可以是 Domain Entity
+public Tuple2<UserEntity, List<MemorySessionEntity>> findUserWithSessions(Long userId) { ... }
+
+// ✅ 正确：返回 DTO 对象（查询结果）
+public List<KbResponse> findAllKnowledgeBases(Long userId) { ... }
+
+// ✅ 正确：Tuple 中包含 DTO 对象
+public Tuple2<KbResponse, Integer> findKbWithDocCount(Long kbId) { ... }
+
+// ❌ 错误：自定义返回对象
+public UserDetailVO findUserDetail(Long userId) { ... }
+```
+
+## Tuple 元素类型约束
+
+Tuple 的泛型参数仅允许以下三类：
+
+| 允许类型 | 来源 | 示例 |
+|----------|------|------|
+| 基础类型 | JDK | `String`, `Long`, `Boolean` |
+| Entity | `com.tutorial.offerpilot.entity` | `AppUser`, `KbKnowledgeBase` |
+| DTO 对象 | `com.tutorial.offerpilot.dto` | `KbResponse`, `AuthResponse` |
+
+```java
+// ✅ 基础类型
+Tuple2<String, Long>
+
+// ✅ Entity
+Tuple2<AppUser, KbKnowledgeBase>
+
+// ✅ DTO 对象（查询结果）
+Tuple2<KbResponse, Integer>
+
+// ✅ DTO 对象
+Tuple2<AuthResponse, String>
+
+// ❌ 禁止：api 层 Form/VO
+Tuple2<UserCreateForm, String>
+
+// ❌ 禁止：Service 层自定义对象
+Tuple2<UserDetailDTO, String>
+```
+
+## 禁止行为
+
+- ❌ 禁止在 Service 层定义任何数据类（DTO / VO / Response / Request）
+- ❌ 禁止方法参数使用非基础类型（如 Entity、Form、自定义对象）
+- ❌ 禁止返回 Tuple 以外的复合类型（除非是基础类型集合）
+- ❌ 禁止 Tuple 元素包含 api 层对象或 Service 层自定义对象
+
+## 设计原则
+
+Service 层是纯逻辑层，不拥有任何数据结构：
+- **输入**：扁平化的基础类型参数
+- **输出**：基础类型 / Entity 对象 / DTO 对象 / Tuple 包装的以上类型
+- **职责**：编排业务逻辑、调用 Repository 和 Agent，不定义数据契约

@@ -1,0 +1,144 @@
+---
+trigger: model_decision
+description: Java 代码 Early Return 规范，限制 if-else 嵌套深度，强制使用卫语句提前返回
+---
+
+# Java Early Return & 嵌套控制规范
+
+## Early Return 原则
+
+- **优先使用卫语句（Guard Clause）**，条件不满足时立即返回，避免将正常逻辑包裹在 if 块中
+- 每个方法的 if-else 嵌套层级**不得超过 2 层**（含第 2 层）
+- 违反时优先重构为 early return，而非增加缩进层级
+
+## ❌ 禁止的写法
+
+### 深层嵌套（超过 2 层）
+
+```java
+// ❌ 禁止：嵌套超过 2 层
+public Result createUser(User user) {
+    if (user != null) {                     // 第 1 层
+        if (user.getName() != null) {       // 第 2 层
+            if (user.getAge() > 0) {        // 第 3 层 — 禁止！
+                return userService.save(user);
+            }
+        }
+    }
+    return Result.error("invalid user");
+}
+```
+
+### 不必要的 else
+
+```java
+// ❌ 禁止：if 有 return 时仍带 else
+public Result getById(Long id) {
+    if (id == null) {
+        return Result.error("id must not be null");
+    } else {                               // 多余的 else
+        return userService.findById(id);
+    }
+}
+```
+
+### 多层 if-else if-else 链
+
+```java
+// ❌ 禁止：超过 3 个分支的 if-else if 链，应使用 switch/策略模式
+public String getStatusText(int status) {
+    if (status == 0) {
+        return "pending";
+    } else if (status == 1) {
+        return "active";
+    } else if (status == 2) {
+        return "suspended";
+    } else if (status == 3) {
+        return "deleted";
+    } else {
+        return "unknown";
+    }
+}
+```
+
+## ✅ 推荐的写法
+
+### 卫语句提前返回
+
+```java
+// ✅ 推荐：卫语句提前返回，消除嵌套
+public Result createUser(User user) {
+    if (user == null) {
+        return Result.error("user must not be null");
+    }
+    if (user.getName() == null) {
+        return Result.error("name must not be null");
+    }
+    if (user.getAge() <= 0) {
+        return Result.error("age must be positive");
+    }
+    return userService.save(user);
+}
+```
+
+### if + return 后不加 else
+
+```java
+// ✅ 推荐：if 有 return 则省略 else
+public Result getById(Long id) {
+    if (id == null) {
+        return Result.error("id must not be null");
+    }
+    return userService.findById(id);
+}
+```
+
+### 多分支使用 switch 或策略模式
+
+```java
+// ✅ 推荐：枚举 + switch 替代 if-else if 链
+public String getStatusText(int status) {
+    return switch (status) {
+        case 0 -> "pending";
+        case 1 -> "active";
+        case 2 -> "suspended";
+        case 3 -> "deleted";
+        default -> "unknown";
+    };
+}
+```
+
+### 复杂条件抽取为方法
+
+```java
+// ✅ 推荐：复杂条件封装为有意义的布尔方法
+public void process(Order order) {
+    if (!canProcess(order)) {
+        return;
+    }
+    // 正常业务逻辑
+}
+
+private boolean canProcess(Order order) {
+    return order != null
+        && order.getAmount() > 0
+        && order.getStatus() != OrderStatus.CANCELLED;
+}
+```
+
+## 规范
+
+| 规则 | 说明 |
+|------|------|
+| 最大嵌套深度 | ≤ 2 层 |
+| if + return | 省略 else 块 |
+| 非法参数校验 | 方法顶部统一用卫语句处理 |
+| 多分支（≥ 4 路） | 使用 switch 或策略模式 |
+| 复杂条件表达式 | 抽取为私有布尔方法 |
+| 循环内嵌套 | 循环体内的 if 嵌套也受此约束 |
+
+## 适用场景
+
+- 所有 Java 代码文件（Controller / Service / Component / Domain）
+- 构造方法、工厂方法、工具类方法同样适用
+- 不适用于 Lambda 表达式内部的简短条件（如 stream filter）

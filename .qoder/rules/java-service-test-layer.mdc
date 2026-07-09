@@ -1,0 +1,147 @@
+---
+trigger: model_decision
+description: 服务测试层规范，涉及 Service 集成测试编写、setup.sql/verify.sql 管理、AbstractServiceIT 使用时激活
+---
+
+# 服务测试层规范
+
+## 测试模块
+
+| 模块 | 技术栈 | 连接数据库 |
+|------|--------|:---------:|
+| `integration-test` | `@SpringBootTest` + `JdbcTemplate` | ✅ MySQL |
+
+## 目录结构
+
+```
+src/test/
+├── java/com/tutorial/offerpilot/service/
+│   ├── AbstractServiceIT.java                 # 测试基类
+│   ├── AuthServiceIT.java                     # 每个 Service 一个 IT 类
+│   └── KnowledgeBaseServiceIT.java
+│
+└── resources/testcases/
+    ├── auth-service/                           # {service-name} 小写 + 中划线
+    │   ├── clean.sql                           # 清理脚本（幂等）
+    │   ├── login/                              # 一个场景一个子目录
+    │   │   ├── setup.sql                       # 数据准备
+    │   │   └── verify.sql                      # 数据验证
+    │   └── register/
+    │       ├── setup.sql
+    │       └── verify.sql
+    └── kb-service/
+        ├── clean.sql
+        ├── create/
+        │   ├── setup.sql
+        │   └── verify.sql
+        └── ...
+```
+
+## 测试基类 AbstractBusinessIT
+
+```java
+@SpringBootTest
+@ActiveProfiles("test")
+public abstract class AbstractServiceIT {
+
+    // @BeforeEach 自动按外键顺序清理全部表
+    // 提供 runSetup(scenario) / runVerify(scenario) 方法
+
+    protected void runSetup(String scenario);    // 读取 + 执行 testcases/{scenario}/setup.sql
+    protected void runVerify(String scenario);   // 读取 + 执行 verify.sql，自动 assertEquals 每行检查点
+}
+```
+
+## setup.sql 规范
+
+```sql
+-- 幂等设计：先 DELETE 后 INSERT，可反复执行
+DELETE FROM role WHERE create_by = 'test';
+
+INSERT INTO role (id, name, description, create_by, update_by, created_at, updated_at)
+VALUES (99001, 'test-admin', 'Test Admin', 'test', 'test', 1720000000000, 1720000000000);
+```
+
+| 规范 | 要求 |
+|------|------|
+| 幂等性 | 每个 setup.sql 必须先 DELETE 后 INSERT |
+| 测试标识 | 测试数据 `create_by` 使用固定值 `'test'`，清理时 `WHERE create_by = 'test'` |
+| 时间戳 | 使用固定值（如 `1720000000000`），不依赖 `NOW()` |
+| 外键顺序 | 删除时按 search_log → kb_chunk → kb_document → kb_knowledge_base → app_user 顺序 |
+| 字段完整 | INSERT 必须指定所有非自增字段（含 id / create_by / update_by） |
+
+## verify.sql 规范
+
+```sql
+-- 每个 SELECT 返回一行，包含 check_point / actual / expected 三列
+SELECT '角色数量' AS check_point, CAST(COUNT(*) AS CHAR) AS actual, '2' AS expected
+FROM role WHERE create_by = 'test';
+```
+
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| `check_point` | `VARCHAR` | 检查点名称，用于定位失败点 |
+| `actual` | `CHAR` | 实际值（CAST 为 CHAR） |
+| `expected` | `CHAR` | 期望值 |
+
+**规则：**
+- 每个 SELECT 必须返回 `check_point` / `actual` / `expected` 三列
+- COUNT / 数值字段必须用 `CAST(... AS CHAR)` 转为字符串
+- 每个 SQL 文件可包含多个 SELECT，基类自动逐条比对
+- verify.sql 在 Service 方法执行完后运行，用于验证数据库状态
+
+## 测试类编写规范
+
+```java
+class AuthServiceIT extends AbstractServiceIT {
+
+    @Autowired
+    private AuthService authService;
+
+    @Test
+    void login_withValidCredentials_shouldReturnToken() {
+        runSetup("auth-service/login");                  // 1. 准备数据
+        AuthResponse result = authService.login(...);     // 2. 调用 Service
+        assertNotNull(result.getToken());                  // 3. Java 断言
+        runVerify("auth-service/login");                   // 4. 数据库验证
+    }
+}
+```
+
+| 步骤 | 说明 |
+|------|------|
+| `runSetup(scenario)` | 执行 setup.sql 准备种子数据 |
+| 调用 Service 方法 | 测试业务逻辑 |
+| Java 断言 | 验证返回值的正确性 |
+| `runVerify(scenario)` | 执行 verify.sql 验证数据库落盘 |
+
+## 方法命名规范
+
+```
+{方法}_{场景}_should{期望}
+```
+
+示例：
+- `listAll_withExistingRoles_shouldReturnAll`
+- `create_withValidData_shouldInsertAndReturnRole`
+- `closeSession_nonExistingId_shouldThrowException`
+
+## 覆盖场景规范
+
+每个 Service 方法至少覆盖以下三类场景：
+
+| 场景类型 | 说明 | 示例 |
+|----------|------|------|
+| 正常流程 | 标准参数，验证正常返回 | `create_withValidData` |
+| 错误流程 | 异常参数，验证异常抛出 | `update_nonExistingId` |
+| 边界情况 | 空数据 / 极限值 | `listAll_noData_shouldReturnEmptyList` |
+
+## 禁止行为
+
+- ❌ 禁止在 IT 测试类中使用 `@Transactional` / `@Rollback`（数据由 SQL 文件管理）
+- ❌ 禁止测试间共享可变状态（每个 `@Test` 方法独立）
+- ❌ 禁止在 setup.sql 中使用动态时间函数（如 `NOW()`）
+- ❌ 禁止测试数据 ID 使用 99000 以下的值（避免与业务数据冲突）
+- ❌ 禁止 verify.sql 返回不符合三列格式的结果
+- ❌ 禁止在 IT 测试类中通过 Mapper 直插数据替代 setup.sql（必须用 SQL 文件）
+- ❌ 禁止依赖测试执行顺序（`@TestMethodOrder` 不允许）

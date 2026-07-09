@@ -1,0 +1,78 @@
+---
+trigger: model_decision
+description: Agent 工具层开发规范，涉及 @Tool 工具类、DTO 返回值、Middleware 编写规范时激活
+---
+
+# Agent 工具层规范
+
+agent 包封装与 AgentScope 框架相关的所有组件，与业务 Service 层解耦。
+
+## 包结构
+
+```
+com.tutorial.offerpilot.agent/
+├── AgentFactory.java                  # Agent 构建 + 池管理（Caffeine Cache）
+├── tool/                              # @Tool 工具类
+│   ├── ResumeParseTool.java           # 返回 POJO Result
+│   ├── ResumeEvaluateTool.java
+│   ├── QuestionSearchTool.java        # 注入 KnowledgeBaseService
+│   └── ...
+├── middleware/                         # AgentScope MiddlewareBase
+│   ├── TokenMonitorMiddleware.java    # onReasoning 钩子
+│   └── CostControlMiddleware.java     # onModelCall 钩子
+└── dto/                               # @Tool 方法返回的 POJO（可选，也可放 dto/tool/）
+```
+
+## @Tool 工具类规范
+
+- 每个工具类使用 `@Component` 注入 Spring 容器
+- 工具方法使用 `@Tool` + `@ToolParam` 注解
+- 工具方法的返回值必须是 **POJO**（框架自动序列化为 JSON）
+- 工具方法禁止直接返回 String JSON（使用 POJO 代替）
+
+```java
+@Component
+public class ResumeParseTool {
+    @Tool(name = "parse_resume",
+          description = "解析简历 PDF，提取结构化信息。")
+    public ResumeParseResult parse(
+            @ToolParam(name = "pdf_url", description = "简历 PDF 的 URL") String pdfUrl) {
+        // 1. PDFBox 提取文字
+        // 2. LLM 结构化解析
+        return new ResumeParseResult(education, projects, skills, experience);
+    }
+}
+```
+
+## Middleware 规范
+
+- 继承 AgentScope `MiddlewareBase`
+- 使用洋葱模式钩子：`onReasoning`、`onModelCall` 等
+- Middleware 必须调用 `next.apply()` 继续链式执行
+
+```java
+public class TokenMonitorMiddleware extends MiddlewareBase {
+    @Override
+    public <T> Mono<T> onModelCall(ModelCallContext ctx, Function<ModelCallContext, Mono<T>> next) {
+        // 前置处理
+        return next.apply(ctx)
+            .doOnSuccess(result -> { /* 后置处理 */ });
+    }
+}
+```
+
+## 命名规范
+
+| 维度 | 规则 | 示例 |
+|------|------|------|
+| 工具类 | `{功能}Tool`（PascalCase） | `ResumeParseTool` |
+| 工具方法 | `{动作}_{名词}`（snake_case） | `parse_resume` |
+| Result POJO | `{工具方法名}Result` | `ResumeParseResult` |
+| Middleware | `{功能}Middleware` | `TokenMonitorMiddleware` |
+
+## 禁止行为
+
+- ❌ 禁止 @Tool 方法直接返回 String JSON（必须使用 POJO）
+- ❌ 禁止在 agent/tool 中包含业务逻辑（工具只做数据获取/处理）
+- ❌ 禁止 Middleware 跳过 `next.apply()` 调用
+- ❌ 禁止 Agent 池不使用有界缓存（必须设置 maximumSize 防 OOM）

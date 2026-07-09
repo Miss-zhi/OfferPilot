@@ -1,0 +1,50 @@
+---
+trigger: model_decision
+description: 前端 4 层架构规范，涉及前端页面开发、路由配置、API 调用层或前端目录结构时激活
+---
+
+# 前端 4 层架构规范
+
+## 目录结构
+
+```
+web/src/
+├── app/              # App层：入口 + 路由配置
+│   ├── main.tsx      # 应用入口
+│   └── App.tsx       # 路由配置 + 全局布局
+├── ui/               # UI层：页面组件 + 通用组件
+│   ├── pages/        # 页面组件（按业务模块组织）
+│   └── components/   # 通用可复用组件
+├── service/          # Service层：API 调用，与页面完全解耦
+│   └── {entity}Service.ts
+└── infra/            # 基础设施层
+    └── http.ts       # axios 封装（统一拦截器、错误处理）
+```
+
+## 各层职责
+
+| 层 | 职责 | 禁止 |
+|----|------|------|
+| app | 路由配置、全局布局、应用状态 | 不放业务代码 |
+| ui/pages | 页面渲染、用户交互、调用 service | 不直接发 HTTP 请求 |
+| ui/components | 通用可复用组件 | 不包含业务逻辑 |
+| service | API 调用、数据返回、类型定义 | 不引用 UI 组件 |
+| infra | axios 实例、拦截器、基础工具 | 不含业务逻辑 |
+
+## 分层依赖规则
+
+```
+app → ui/pages → service → infra
+                → ui/components
+```
+
+- pages 可以引用 service 和 components
+- service 只能引用 infra
+- infra 对外不依赖任何业务模块
+- 禁止 pages 直接调用 axios
+
+## 关联规则
+
+页面组件开发（CRUD 布局、状态变量、表格/表单规范）详见于：
+
+> **`.qoder/rules/web-page-layer.mdc`** — Web 页面层组件规范

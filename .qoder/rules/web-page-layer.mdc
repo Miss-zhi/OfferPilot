@@ -1,0 +1,252 @@
+---
+trigger: model_decision
+description: Web 页面层组件规范，涉及入口文件约定、响应拦截器、CRUD 页面布局结构、状态变量约定、Service 层调用模式和 Modal 表单生成时激活
+---
+
+# Web 页面层组件规范
+
+## 入口文件约定
+
+- `index.html` 中的 `<script>` 标签 `src` 必须指向 `/src/app/main.tsx`
+- 禁止将 `main.tsx` 放在 `src/` 根目录下
+- 入口文件必须遵循 `app/main.tsx` → `app/App.tsx` 结构
+
+## 响应拦截器规范
+
+`infra/http.ts` 中的 axios 响应拦截器必须解包后端统一响应格式 `{code, message, data}`：
+
+```typescript
+http.interceptors.response.use(
+  response => {
+    const body = response.data;
+    if (body && typeof body === 'object' && 'code' in body) {
+      if (body.code === 200) {
+        response.data = body.data;   // 解包：直接返回 data 字段
+      } else {
+        return Promise.reject(new Error(body.message || '请求失败'));
+      }
+    }
+    return response;
+  },
+  error => {
+    console.error('API Error:', error);
+    return Promise.reject(error);
+  }
+);
+```
+
+- 解包后 Service 层 `res.data` 获取到的是真正的业务数据，无需重复 `.data`
+- 非 200 状态码由拦截器统一 reject，Service 层通过 `catch` 处理错误
+
+## 标准页面布局
+
+所有列表类页面必须采用以下固定结构：
+
+```
+┌─────────────────────────────────────┐
+│  查询栏（Card 包裹的 inline Form）    │
+│  [名称] [分类] [查询] [重置]          │
+├─────────────────────────────────────┤
+│  操作栏                              │
+│  [新增] [批量删除]                    │
+├─────────────────────────────────────┤
+│  表格（带行选择 + 操作列）             │
+│  ┌────┬────┬────┬────┬────┬──────┐ │
+│  │ ID │名称│分类│状态│创建时间│ 操作 │ │
+│  ├────┼────┼────┼────┼────┼──────┤ │
+│  │ .. │ .. │ .. │ .. │ .. │编辑删除│ │
+│  └────┴────┴────┴────┴────┴──────┘ │
+│  分页栏（共 N 条）                   │
+└─────────────────────────────────────┘
+```
+
+### 区域职责
+
+| 区域 | 组件 | 职责 |
+|------|------|------|
+| 查询栏 | `<Card>` + `<Form inline>` | 搜索条件输入 + 查询/重置按钮 |
+| 操作栏 | `<Space>` + `<Button>` | 新增、批量删除等操作入口 |
+| 表格栏 | `<Table>` | 数据展示 + 行选择 + 操作列 |
+| 分页栏 | `<Table pagination>` | 分页控制（内嵌在 Table 中） |
+
+## 状态变量约定
+
+每个 CRUD 页面必须定义以下核心状态：
+
+```typescript
+const [data, setData] = useState<ItemType[]>([]);           // 表格数据
+const [loading, setLoading] = useState(false);               // 加载状态
+const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);  // 行选择
+const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });  // 分页
+const [modalOpen, setModalOpen] = useState(false);           // 弹窗开关
+const [editingItem, setEditingItem] = useState<ItemType | null>(null);  // 编辑对象
+const [queryForm] = Form.useForm();                          // 查询表单
+const [form] = Form.useForm();                               // 新增/编辑表单
+```
+
+- 使用 `useCallback` 包裹 `loadData` 方法，避免重复创建
+- `loadData` 在 `useEffect` 中首次调用
+
+## 查询栏规范
+
+```typescript
+<Card size="small" style={{ marginBottom: 16 }}>
+  <Form form={queryForm} layout="inline">
+    <Form.Item name="name" label="名称">
+      <Input placeholder="请输入" allowClear />
+    </Form.Item>
+    <Form.Item name="category" label="分类">
+      <Select placeholder="请选择" allowClear style={{ width: 120 }}>
+        <Select.Option value="A">A</Select.Option>
+      </Select>
+    </Form.Item>
+    <Form.Item>
+      <Space>
+        <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>查询</Button>
+        <Button icon={<ReloadOutlined />} onClick={handleReset}>重置</Button>
+      </Space>
+    </Form.Item>
+  </Form>
+</Card>
+```
+
+- 查询条件使用 `<Form.Item name="xxx">`，数据通过 `queryForm.getFieldsValue()` 获取
+- 查询按钮调用 `loadData(queryParams)`，重置按钮调用 `queryForm.resetFields()` 后重新加载
+- 查询表单使用 `layout="inline"` 水平排列
+
+## 操作栏规范
+
+```typescript
+<Row justify="space-between" style={{ marginBottom: 12 }}>
+  <Col>
+    <Space>
+      <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingItem(null); form.resetFields(); setModalOpen(true); }}>
+        新增
+      </Button>
+      <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>
+        批量删除
+      </Button>
+    </Space>
+  </Col>
+</Row>
+```
+
+- 新增按钮：重置表单 → 打开 Modal（编辑模式为 false）
+- 批量删除：先检查 `selectedRowKeys.length === 0`，为空提示用户选择
+
+## 表格列规范
+
+### 操作列
+
+```typescript
+{
+  title: '操作', key: 'action', width: 120,
+  render: (_: unknown, record: ItemType) => (
+    <Space>
+      <Button size="small" type="link" onClick={() => openEdit(record)}>编辑</Button>
+      <Popconfirm title="确认删除?" onConfirm={() => handleDelete(record.id!)}>
+        <Button size="small" type="link" danger>删除</Button>
+      </Popconfirm>
+    </Space>
+  ),
+}
+```
+
+- 操作列固定宽度 `120px`，使用 `type="link"` 的按钮
+- 删除操作必须包裹 `<Popconfirm>` 二次确认
+
+### 状态列
+
+```typescript
+{
+  title: '状态', dataIndex: 'status', key: 'status', width: 100,
+  render: (status: string) =>
+    status === 'active' ? <Tag color="green">启用</Tag> : <Tag color="default">停用</Tag>,
+}
+```
+
+- 状态通过 `<Tag>` 渲染，不同值对应不同颜色
+
+### 时间列
+
+```typescript
+{
+  title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', width: 170,
+  render: (ts: number) => ts ? new Date(ts).toLocaleString() : '-',
+}
+```
+
+- 时间戳格式化使用 `new Date(ts).toLocaleString()`
+
+## 表格 + 分页规范
+
+```typescript
+<Table
+  dataSource={data}
+  columns={columns}
+  rowKey="id"
+  loading={loading}
+  rowSelection={{ selectedRowKeys, onChange: (keys) => setSelectedRowKeys(keys) }}
+  pagination={{
+    current: pagination.current,
+    pageSize: pagination.pageSize,
+    total: pagination.total,
+    showSizeChanger: true,
+    showQuickJumper: true,
+    showTotal: (total) => `共 ${total} 条`,
+  }}
+  onChange={(pag) => setPagination(prev => ({ ...prev, ...pag }))}
+/>
+```
+
+- `rowKey` 必须指定为 `"id"`
+- 分页参数通过 `onChange` 同步到 `pagination` 状态
+
+## Modal 表单规范
+
+```typescript
+<Modal
+  title={editingItem ? '编辑' : '新增'}
+  open={modalOpen}
+  onOk={handleSave}
+  onCancel={() => { setModalOpen(false); form.resetFields(); setEditingItem(null); }}
+>
+  <Form form={form} layout="vertical">
+    <Form.Item name="fieldName" label="字段名" rules={[{ required: true }]}>
+      <Input />
+    </Form.Item>
+  </Form>
+</Modal>
+```
+
+- Modal 标题根据 `editingItem` 区分"编辑"/"新增"
+- 关闭 Modal 时必须 `resetFields()` 并清除 `editingItem`
+- 保存成功后关闭 Modal、重置表单、重新加载列表（`loadData()`）
+
+## Service 层约定
+
+```typescript
+import http from '../infra/http';
+
+export interface ItemType {
+  id?: number;
+  // 业务字段...
+}
+
+export const entityService = {
+  list: (params?: Record<string, unknown>) =>
+    http.get<ItemType[]>('/resource-path', { params }).then(res => res.data),
+  getById: (id: number) =>
+    http.get<ItemType>(`/resource-path/${id}`).then(res => res.data),
+  create: (data: Partial<ItemType>) =>
+    http.post<ItemType>('/resource-path', data).then(res => res.data),
+  update: (id: number, data: Partial<ItemType>) =>
+    http.put<ItemType>(`/resource-path/${id}`, data).then(res => res.data),
+  delete: (id: number) =>
+    http.delete(`/resource-path/${id}`),
+};
+```
+
+- **不需要手动解包**：`infra/http.ts` 的响应拦截器已自动解包 `{code, message, data}` 格式
+- Service 层方法命名统一为 `list` / `getById` / `create` / `update` / `delete`
+- RESTful 路径使用小写中划线：`/memory-items` 而非 `/memoryItems`

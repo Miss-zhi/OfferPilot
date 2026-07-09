@@ -1,0 +1,168 @@
+---
+trigger: model_decision
+description: API 层日志规范，所有 Controller 入口方法必须打印请求日志
+---
+
+# API 层日志规范
+
+## 强制要求
+
+所有 Controller 方法（`@GetMapping` / `@PostMapping` / `@PutMapping` / `@DeleteMapping` / `@RequestMapping` 等）的**方法入口**必须打印日志。
+
+## 日志组件选择
+
+优先使用 Lombok `@Slf4j` 注解：
+
+```java
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+@RestController
+@RequestMapping("/api/roles")
+public class RoleController {
+    // ...
+}
+```
+
+若项目未引入 Lombok，手动声明 Logger：
+
+```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+@RestController
+@RequestMapping("/api/roles")
+public class RoleController {
+    private static final Logger log = LoggerFactory.getLogger(RoleController.class);
+    // ...
+}
+```
+
+## 日志内容规范
+
+### 方法入口日志
+
+- 所有 Controller 方法的第一行执行体必须是入口日志
+- 日志格式：`log.info("{}: {}", 方法描述, 关键参数)`
+- 必须包含请求识别信息（ID、名称等）
+
+### GET 查询
+
+```java
+@GetMapping
+public ApiResponse<List<RoleEntity>> list() {
+    log.info("list all roles");
+    return ApiResponse.success(roleService.listAll());
+}
+
+@GetMapping("/{id}")
+public ApiResponse<RoleEntity> getById(@PathVariable Long id) {
+    log.info("get role by id: {}", id);
+    return ApiResponse.success(roleService.getById(id));
+}
+```
+
+### POST 新增
+
+```java
+@PostMapping
+public ApiResponse<RoleEntity> create(@RequestBody RoleCreateForm form) {
+    log.info("create role: name={}", form.getName());
+    if (form.getName() == null || form.getName().isEmpty()) {
+        throw new ApiRequestException("name must not be empty");
+    }
+    return ApiResponse.success(roleService.create(form.getName(), form.getDescription()));
+}
+```
+
+### PUT 更新
+
+```java
+@PutMapping("/{id}")
+public ApiResponse<RoleEntity> update(@PathVariable Long id, @RequestBody RoleUpdateForm form) {
+    log.info("update role: id={}, name={}", id, form.getName());
+    if (form.getName() == null || form.getName().isEmpty()) {
+        throw new ApiRequestException("name must not be empty");
+    }
+    return ApiResponse.success(roleService.update(id, form.getName(), form.getDescription()));
+}
+```
+
+### DELETE 删除
+
+```java
+@DeleteMapping("/{id}")
+public ApiResponse<Void> delete(@PathVariable Long id) {
+    log.info("delete role: id={}", id);
+    roleService.delete(id);
+    return ApiResponse.success();
+}
+```
+
+## 日志级别
+
+| 场景 | 级别 | 说明 |
+|------|------|------|
+| 正常请求入口 | `info` | 记录请求方法和关键参数 |
+| 成功完成 | 不要求 | 由入口日志 + 返回值隐式覆盖 |
+| 参数校验失败 | 不要求 | 由全局异常处理器统一记录 |
+| 业务异常 | 不要求 | 由全局异常处理器统一记录 |
+
+## ✅ 推荐的完整 Controller 示例
+
+```java
+@Slf4j
+@RestController
+@RequestMapping("/api/roles")
+public class RoleController {
+
+    private final RoleService roleService;
+
+    public RoleController(RoleService roleService) {
+        this.roleService = roleService;
+    }
+
+    @GetMapping
+    public ApiResponse<List<RoleEntity>> list() {
+        log.info("list all roles");
+        return ApiResponse.success(roleService.listAll());
+    }
+
+    @GetMapping("/{id}")
+    public ApiResponse<RoleEntity> getById(@PathVariable Long id) {
+        log.info("get role by id: {}", id);
+        return ApiResponse.success(roleService.getById(id));
+    }
+
+    @PostMapping
+    public ApiResponse<RoleEntity> create(@RequestBody RoleCreateForm form) {
+        log.info("create role: name={}", form.getName());
+        if (form.getName() == null || form.getName().isEmpty()) {
+            throw new ApiRequestException("name must not be empty");
+        }
+        return ApiResponse.success(roleService.create(form.getName(), form.getDescription()));
+    }
+
+    @PutMapping("/{id}")
+    public ApiResponse<RoleEntity> update(@PathVariable Long id, @RequestBody RoleUpdateForm form) {
+        log.info("update role: id={}, name={}", id, form.getName());
+        if (form.getName() == null || form.getName().isEmpty()) {
+            throw new ApiRequestException("name must not be empty");
+        }
+        return ApiResponse.success(roleService.update(id, form.getName(), form.getDescription()));
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        log.info("delete role: id={}", id);
+        roleService.delete(id);
+        return ApiResponse.success();
+    }
+}
+```
+
+## 禁止行为
+
+- ❌ 禁止在日志中打印密码、令牌等敏感信息
+- ❌ 禁止在大循环体内打印日志
+- ❌ 禁止打印的日志内容包含完整的请求 Body（如序列化整个 Form 对象），只需关键字段

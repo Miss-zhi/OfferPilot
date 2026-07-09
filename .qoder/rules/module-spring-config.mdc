@@ -1,0 +1,31 @@
+---
+trigger: glob
+glob: *.java
+---
+
+# Spring Bean 注册规范
+
+适用于 `*Configuration.java` 文件。
+
+## 配置类命名
+
+- 统一使用 `XxxConfiguration` 命名
+- 放在模块的根包下
+
+## 注册规范
+
+- 使用 `@Configuration` 注解
+- 使用 `@Bean` 注册第三方组件
+- 使用 `@ComponentScan` 指定扫描包范围（仅在主应用类中使用）
+
+## 示例
+
+```java
+@Configuration
+public class AppConfiguration {
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+}
+```

@@ -1,0 +1,63 @@
+---
+trigger: glob
+glob: *.{ts,tsx}
+description: React TypeScript 类型规范，禁止使用 any 类型，确保类型安全
+---
+
+# React TypeScript 规范
+
+## 类型安全
+
+### 禁止使用 any
+
+**严格禁止以下场景：**
+
+- 变量声明：`let data: any`
+- 函数参数：`function foo(param: any)`
+- 函数返回值：`function foo(): any`
+- 泛型参数：`useState<any>()`
+- 类型断言：`value as any`
+- 接口字段：`interface Foo { bar: any }`
+
+### 正确做法
+
+| 场景 | 错误写法 | 正确写法 |
+|------|---------|---------|
+| 未知类型 | `data: any` | `data: unknown` 或定义具体类型 |
+| API 响应 | `response: any` | 定义 `interface ResponseData { ... }` |
+| 事件处理 | `e: any` | `e: React.ChangeEvent<HTMLInputElement>` |
+| 空值 | `data: any` | `data: DataType \| null` |
+| 任意对象 | `obj: any` | `obj: Record<string, unknown>` |
+
+### 类型定义规范
+
+```typescript
+// 定义 API 响应类型
+interface UserDTO {
+  id: number;
+  name: string;
+  email: string;
+}
+
+// 组件 Props 类型
+interface UserPageProps {
+  userId: number;
+  onUpdate?: (user: UserDTO) => void;
+}
+
+// useState 泛型
+const [users, setUsers] = useState<UserDTO[]>([]);
+const [loading, setLoading] = useState<boolean>(false);
+```
+
+## 组件规范
+
+- 函数组件必须声明返回值类型：`const Component = (): JSX.Element => { ... }`
+- Props 必须定义 interface 或 type，不允许省略
+- 事件处理函数必须明确事件类型
+
+## 禁止清单
+
+- `any`
+- `@ts-ignore`（除非有充分理由并添加注释说明）
+- `@ts-nocheck`

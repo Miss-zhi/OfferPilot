@@ -1,0 +1,18 @@
+/*
+ * Copyright (c) 2020-06-29 Qoder. All rights reserved.
+ */
+package com.tutorial.offerpilot.dto.tool;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class TranscribeResult {
+
+    private String text;
+    private Integer durationSeconds;
+    private Integer questionCount;
+}

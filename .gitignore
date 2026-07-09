@@ -1,0 +1,22 @@
+# Build
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/
+logs/
+uploads/
+workspace/uploads/
+
+# Environment
+.env.production
