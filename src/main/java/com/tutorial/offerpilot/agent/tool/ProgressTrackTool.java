@@ -54,22 +54,33 @@ public class ProgressTrackTool {
         int completedTasks = plans.stream().mapToInt(p -> p.getCompletedCount() != null ? p.getCompletedCount() : 0).sum();
         int totalTasks = plans.stream().mapToInt(p -> p.getTotalCount() != null ? p.getTotalCount() : 0).sum();
 
-        String summary = buildSummary(interviewCount, averageScore, completedTasks, totalTasks);
+        String guidance = buildGuidance(interviewCount, averageScore, completedTasks, totalTasks, knowledgeScores);
 
         log.info("track_progress result: interviewCount={}, avgScore={}, plans={}",
                 interviewCount, averageScore, plans.size());
-        return new ProgressResult(interviewCount, averageScore, knowledgeScores, summary);
+        return new ProgressResult(interviewCount, averageScore, knowledgeScores, guidance, completedTasks, totalTasks);
     }
 
-    private String buildSummary(long interviewCount, int averageScore, int completed, int total) {
+    /**
+     * 构建进度汇总指导，由 LLM 据此生成自然语言总结。
+     * 不拼接成品文本，仅提供结构化上下文。
+     */
+    private String buildGuidance(long interviewCount, int averageScore, int completed, int total,
+                                  Map<String, Integer> knowledgeScores) {
         StringBuilder sb = new StringBuilder();
-        sb.append("已完成 ").append(interviewCount).append(" 次面试练习");
+        sb.append("请根据以下学习进度数据生成一段简洁的进度总结：\n");
+        sb.append("- 面试练习次数：").append(interviewCount).append(" 次\n");
         if (averageScore > 0) {
-            sb.append("，平均得分 ").append(averageScore).append(" 分");
+            sb.append("- 平均得分：").append(averageScore).append(" 分\n");
         }
         if (total > 0) {
-            sb.append("；学习计划完成度：").append(completed).append("/").append(total);
+            sb.append("- 学习计划完成度：").append(completed).append("/").append(total).append("\n");
         }
+        if (!knowledgeScores.isEmpty()) {
+            sb.append("- 各知识点掌握度：\n");
+            knowledgeScores.forEach((k, v) -> sb.append("  · ").append(k).append("：").append(v).append(" 分\n"));
+        }
+        sb.append("请用鼓励的语气输出，突出进步趋势和待加强的薄弱点。");
         return sb.toString();
     }
 }

@@ -14,11 +14,22 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 模拟面试出题工具 — 提供结构化出题指导，由 LLM 据此动态生成个性化面试题。
+ *
+ * <p>职责划分：
+ * <ul>
+ *   <li>本工具：查 DB（session/历史题目/得分）→ 计算进度/难度/阶段 → 输出出题指导</li>
+ *   <li>LLM：根据指导信息，结合上下文、公司、岗位自由生成面试题</li>
+ * </ul>
+ *
+ * <p>不再硬编码任何题目模板，所有自然语言内容由 LLM 生成。
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -27,81 +38,191 @@ public class MockInterviewTool {
     private static final Pattern SESSION_ID_PATTERN = Pattern.compile(
             "session[=:]([a-zA-Z0-9_-]+)");
 
-    private static final Map<String, List<String>> QUESTION_BANK = Map.of(
-            "Java基础", List.of(
-                    "请解释Java中HashMap的实现原理",
-                    "谈谈Java内存模型（JMM）的理解",
-                    "什么是Java的垃圾回收机制？常见GC算法有哪些？",
-                    "synchronized和ReentrantLock有什么区别？"
-            ),
-            "并发编程", List.of(
-                    "解释线程池的工作原理和核心参数",
-                    "什么是CAS操作？它在Java中如何实现？",
-                    "谈谈volatile关键字的作用和原理",
-                    "如何避免死锁？举例说明"
-            ),
-            "数据库", List.of(
-                    "MySQL索引的底层数据结构是什么？为什么用B+树？",
-                    "解释事务的ACID特性和隔离级别",
-                    "什么是慢查询？如何优化？",
-                    "分库分表的策略有哪些？各有什么优缺点？"
-            ),
-            "系统设计", List.of(
-                    "设计一个短链接服务，需要考虑哪些方面？",
-                    "如何设计一个高并发的秒杀系统？",
-                    "谈谈你对微服务架构的理解",
-                    "如何保证分布式系统的一致性？"
-            ),
-            "通用", List.of(
-                    "请做一个自我介绍",
-                    "你为什么选择我们公司？",
-                    "谈谈你的职业规划",
-                    "你最大的优点和缺点是什么？"
-            )
+    /** 面试阶段轮转序列 — 仅用于默认阶段的数学轮转，不涉及任何自然语言内容 */
+    private static final List<String> PHASE_SEQUENCE = List.of(
+            "自我介绍", "专业技能", "专业技能", "项目经验",
+            "专业技能", "情景分析", "行为面试", "项目经验",
+            "专业技能", "情景分析", "行为面试", "职业规划"
     );
-
-    private static final List<String> CATEGORIES = List.of(
-            "Java基础", "并发编程", "数据库", "系统设计", "通用");
 
     private final InterviewQuestionRepository questionRepo;
     private final InterviewSessionRepository sessionRepo;
 
-    @Tool(name = "generate_next_question", description = "根据当前面试上下文生成下一个模拟面试问题，支持渐进式难度调整")
+    @Tool(name = "generate_next_question",
+            description = "获取下一个面试题的出题指导（含岗位、阶段、难度、历史题目），由你据此生成并提问")
     public NextQuestionResult generateNextQuestion(
             @ToolParam(name = "context", description = "当前面试上下文，包括已有问答历史和面试方向") String context) {
         log.info("generate_next_question called: contextLen={}", context != null ? context.length() : 0);
 
         String sessionId = parseSessionId(context);
-        String category = determineCategory(context);
+        int questionNumber = countPreviousQuestions(context) + 1;
+        String role = extractRole(context, sessionId);
+        String category = determineCategory(context, questionNumber);
         String difficulty = determineDifficulty(context, sessionId);
-        String question = selectQuestion(category, context);
-        String reason = buildReason(category, difficulty, context);
+        Double avgScore = fetchAverageScore(sessionId);
+        List<String> prevQuestions = fetchPreviousQuestions(sessionId);
+        String guidance = buildGuidance(role, category, difficulty, questionNumber, avgScore);
 
-        persistQuestion(sessionId, question, category, difficulty);
+        persistQuestion(sessionId, guidance, category, difficulty);
 
-        log.info("generate_next_question result: sessionId={}, category={}, difficulty={}, question={}",
-                sessionId, category, difficulty, question);
-        return new NextQuestionResult(question, category, difficulty, reason);
+        log.info("generate_next_question: sessionId={}, role={}, category={}, difficulty={}, qNo={}, avgScore={}",
+                sessionId, role, category, difficulty, questionNumber, avgScore);
+        return new NextQuestionResult(guidance, category, difficulty, role, questionNumber, avgScore, prevQuestions);
     }
 
+    // ======================== 出题指导构建 ========================
+
     /**
-     * 从 context 字符串中解析 sessionId。
+     * 构建出题指导文本，作为 LLM 生成面试题的指令。
+     * 不包含任何硬编码题目文本，仅提供上下文信息。
      */
-    private String parseSessionId(String context) {
-        if (context == null) {
+    private String buildGuidance(String role, String category, String difficulty, int questionNumber, Double avgScore) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("请为").append(role).append("岗位生成一道").append(category)
+                .append("类面试题，难度").append(difficulty)
+                .append("，这是第").append(questionNumber).append("题。");
+
+        if (avgScore != null) {
+            sb.append("历史均分").append(String.format("%.0f", avgScore)).append("分。");
+        }
+
+        sb.append("请根据岗位特点和面试阶段自由发挥，直接输出题目文本，不要加任何前缀说明。");
+        return sb.toString();
+    }
+
+    // ======================== 数据查询 ========================
+
+    /** 从 session 获取历史均分。 */
+    private Double fetchAverageScore(String sessionId) {
+        if (sessionId == null) {
             return null;
         }
-        Matcher matcher = SESSION_ID_PATTERN.matcher(context);
+        try {
+            List<InterviewQuestion> existing = questionRepo.findBySessionIdOrderBySortOrder(sessionId);
+            if (existing.isEmpty()) {
+                return null;
+            }
+            return existing.stream()
+                    .filter(q -> q.getTechScore() != null && q.getExprScore() != null && q.getCoverageScore() != null)
+                    .mapToDouble(q -> (q.getTechScore() + q.getExprScore() + q.getCoverageScore()) / 3.0)
+                    .average()
+                    .orElse(Double.NaN);
+        } catch (Exception e) {
+            log.debug("Failed to fetch average score: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 从 DB 获取前几题的文本，供 LLM 避免出重复题。 */
+    private List<String> fetchPreviousQuestions(String sessionId) {
+        if (sessionId == null) {
+            return List.of();
+        }
+        try {
+            return questionRepo.findBySessionIdOrderBySortOrder(sessionId).stream()
+                    .map(InterviewQuestion::getQuestionText)
+                    .filter(t -> t != null && !t.isBlank())
+                    .toList();
+        } catch (Exception e) {
+            log.debug("Failed to fetch previous questions: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    // ======================== 角色提取 ========================
+
+    /**
+     * 从 session 或 context 中提取面试岗位/方向。
+     * 优先级：DB sessionType > context 模式匹配 > 默认 "该岗位"。
+     */
+    private String extractRole(String context, String sessionId) {
+        if (sessionId != null) {
+            try {
+                InterviewSession session = sessionRepo.findBySessionId(sessionId).orElse(null);
+                if (session != null && session.getSessionType() != null && !session.getSessionType().isBlank()) {
+                    return session.getSessionType();
+                }
+            } catch (Exception e) {
+                log.debug("Failed to read sessionType: {}", e.getMessage());
+            }
+        }
+        if (context != null) {
+            String role = parseRoleFromContext(context);
+            if (role != null) {
+                return role;
+            }
+        }
+        return "该岗位";
+    }
+
+    /** 从上下文文本中解析面试岗位。 */
+    private String parseRoleFromContext(String context) {
+        Pattern rolePattern = Pattern.compile(
+                "([\\u4e00-\\u9fa5a-zA-Z]{2,12}(?:工程师|经理|设计师|专员|分析师|运营|开发|架构师"
+                + "|顾问|销售|市场|客服|HR|行政|财务|法务|教师|医生|护士|编辑|记者))");
+        Matcher matcher = rolePattern.matcher(context);
         if (matcher.find()) {
             return matcher.group(1);
+        }
+        Pattern labelPattern = Pattern.compile(
+                "(?:面试方向|面试岗位|目标岗位|应聘岗位|岗位|方向)[：:]\\s*([\\u4e00-\\u9fa5a-zA-Z]{2,20})");
+        Matcher labelMatcher = labelPattern.matcher(context);
+        if (labelMatcher.find()) {
+            return labelMatcher.group(1).trim();
         }
         return null;
     }
 
+    // ======================== 阶段判定 ========================
+
     /**
-     * 将生成的问题持久化到 InterviewQuestion，并更新 InterviewSession.questionCount。
+     * 根据上下文关键词或面试进度确定当前阶段（类别）。
+     * 回退到 PHASE_SEQUENCE 的数学轮转，不包含任何自然语言内容。
      */
-    private void persistQuestion(String sessionId, String questionText, String category, String difficulty) {
+    private String determineCategory(String context, int questionNumber) {
+        if (context != null) {
+            String ctx = context.toLowerCase();
+            if (ctx.contains("自我介绍") || ctx.contains("介绍自己") || ctx.contains("开场")) return "自我介绍";
+            if (ctx.contains("技能") || ctx.contains("专业") || ctx.contains("技术") || ctx.contains("能力")) return "专业技能";
+            if (ctx.contains("项目") || ctx.contains("经验") || ctx.contains("案例")) return "项目经验";
+            if (ctx.contains("情景") || ctx.contains("场景") || ctx.contains("如果") || ctx.contains("假设")) return "情景分析";
+            if (ctx.contains("行为") || ctx.contains("素质") || ctx.contains("压力") || ctx.contains("冲突")) return "行为面试";
+            if (ctx.contains("规划") || ctx.contains("目标") || ctx.contains("未来") || ctx.contains("职业")) return "职业规划";
+        }
+        return PHASE_SEQUENCE.get((questionNumber - 1) % PHASE_SEQUENCE.size());
+    }
+
+    // ======================== 难度判定 ========================
+
+    /**
+     * 基于已有得分确定下一题难度（渐进式）。
+     */
+    private String determineDifficulty(String context, String sessionId) {
+        if (context != null) {
+            if (context.contains("高级") || context.contains("hard") || context.contains("深入")) return "hard";
+            if (context.contains("初级") || context.contains("easy") || context.contains("入门")) return "easy";
+        }
+        if (sessionId != null) {
+            Double avg = fetchAverageScore(sessionId);
+            if (avg != null && !avg.isNaN()) {
+                if (avg >= 75) return "hard";
+                if (avg >= 50) return "medium";
+                return "easy";
+            }
+        }
+        int questionNumber = countPreviousQuestions(context) + 1;
+        if (questionNumber > 5) return "hard";
+        if (questionNumber > 2) return "medium";
+        return "easy";
+    }
+
+    // ======================== 持久化 ========================
+
+    /**
+     * 将出题指导持久化到 InterviewQuestion，并更新 InterviewSession.questionCount。
+     * 注意：持久化的是指导文本，实际题目由 LLM 在对话中生成。
+     */
+    private void persistQuestion(String sessionId, String guidance, String category, String difficulty) {
         if (sessionId == null) {
             return;
         }
@@ -109,7 +230,7 @@ public class MockInterviewTool {
             List<InterviewQuestion> existing = questionRepo.findBySessionIdOrderBySortOrder(sessionId);
             InterviewQuestion question = new InterviewQuestion();
             question.setSessionId(sessionId);
-            question.setQuestionText(questionText);
+            question.setQuestionText("[GUIDANCE] " + guidance);
             question.setSortOrder(existing.size());
             questionRepo.save(question);
 
@@ -120,107 +241,20 @@ public class MockInterviewTool {
                 sessionRepo.save(session);
             }
 
-            log.info("Question persisted: sessionId={}, sortOrder={}, question={}",
-                    sessionId, existing.size(), questionText);
+            log.info("Guidance persisted: sessionId={}, sortOrder={}", sessionId, existing.size());
         } catch (Exception e) {
-            log.warn("Failed to persist question: sessionId={}, error={}",
-                    sessionId, e.getMessage());
+            log.warn("Failed to persist guidance: sessionId={}, error={}", sessionId, e.getMessage());
         }
     }
 
-    private String determineCategory(String context) {
+    // ======================== 工具方法 ========================
+
+    private String parseSessionId(String context) {
         if (context == null) {
-            return "通用";
+            return null;
         }
-        String ctx = context.toLowerCase();
-        for (String category : CATEGORIES) {
-            if (ctx.contains(category.toLowerCase())) {
-                return category;
-            }
-        }
-        if (ctx.contains("java")) {
-            return "Java基础";
-        }
-        if (ctx.contains("并发") || ctx.contains("线程") || ctx.contains("锁")) {
-            return "并发编程";
-        }
-        if (ctx.contains("sql") || ctx.contains("数据库") || ctx.contains("mysql")) {
-            return "数据库";
-        }
-        if (ctx.contains("设计") || ctx.contains("架构") || ctx.contains("系统")) {
-            return "系统设计";
-        }
-        return "通用";
-    }
-
-    /**
-     * 基于已有问答得分确定下一题难度（渐进式：高分→提升难度，低分→同难度巩固）。
-     * 优先使用 DB 中的实际得分，无 sessionId 时回退为上下文分析。
-     */
-    private String determineDifficulty(String context, String sessionId) {
-        if (context == null) {
-            return "medium";
-        }
-        if (context.contains("高级") || context.contains("hard") || context.contains("深入")) {
-            return "hard";
-        }
-        if (context.contains("初级") || context.contains("easy") || context.contains("入门")) {
-            return "easy";
-        }
-
-        if (sessionId != null) {
-            return determineDifficultyFromScores(sessionId);
-        }
-
-        int questionCount = countPreviousQuestions(context);
-        if (questionCount > 5) {
-            return "hard";
-        }
-        if (questionCount > 2) {
-            return "medium";
-        }
-        return "easy";
-    }
-
-    /**
-     * 根据已有 InterviewQuestion 的实际得分决定下一题难度。
-     */
-    private String determineDifficultyFromScores(String sessionId) {
-        try {
-            List<InterviewQuestion> existing = questionRepo.findBySessionIdOrderBySortOrder(sessionId);
-            if (existing.isEmpty()) {
-                return "easy";
-            }
-            double avgScore = existing.stream()
-                    .filter(q -> q.getTechScore() != null && q.getExprScore() != null && q.getCoverageScore() != null)
-                    .mapToDouble(q -> (q.getTechScore() + q.getExprScore() + q.getCoverageScore()) / 3.0)
-                    .average()
-                    .orElse(50);
-
-            if (avgScore >= 75) {
-                return "hard";
-            }
-            if (avgScore >= 50) {
-                return "medium";
-            }
-            return "easy";
-        } catch (Exception e) {
-            log.warn("Failed to determine difficulty from scores: {}", e.getMessage());
-            return "medium";
-        }
-    }
-
-    private String selectQuestion(String category, String context) {
-        List<String> questions = QUESTION_BANK.getOrDefault(category, QUESTION_BANK.get("通用"));
-        int usedCount = countPreviousQuestions(context);
-        int index = usedCount % questions.size();
-        return questions.get(index);
-    }
-
-    private String buildReason(String category, String difficulty, String context) {
-        int questionCount = countPreviousQuestions(context);
-        return String.format("第%d题，类别：%s，难度：%s，基于当前面试进度自动匹配",
-                questionCount + 1, category, difficulty);
+        Matcher matcher = SESSION_ID_PATTERN.matcher(context);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private int countPreviousQuestions(String context) {

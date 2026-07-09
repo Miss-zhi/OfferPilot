@@ -230,6 +230,17 @@ public class AgentFactory {
                 - For complex tasks, use plan_enter to design a plan first, then execute
                 - Maintain context across multi-turn conversations
                 - Respect user privacy and confidentiality
+
+                IMPORTANT — Tool output interpretation:
+                - When you call `generate_next_question`, it returns guidance (not a ready question).
+                  You MUST read the guidance and generate an appropriate interview question yourself,
+                  based on the role, category, difficulty, and context provided.
+                - When you call `analyze_answer`, it returns the raw Q&A plus evaluation guidance.
+                  You MUST generate the actual scores, highlights, weaknesses, and suggestions yourself.
+                - When you call `evaluate_resume`, it returns the resume text plus evaluation guidance.
+                  You MUST generate the actual score, strengths, weaknesses, and suggestions yourself.
+                - For all guidance-based tools, never echo the raw guidance to the user.
+                  Always transform it into natural, polished output.
                 """.stripIndent();
     }
 

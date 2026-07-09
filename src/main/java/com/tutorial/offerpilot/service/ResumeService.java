@@ -18,6 +18,15 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 简历服务 — 解析（正则提取结构化字段）+ 评估指导（由 LLM 生成评分和建议）。
+ *
+ * <p>职责划分：
+ * <ul>
+ *   <li>parseResume：正则提取姓名/邮箱/电话/教育/项目/经验 — 工具本分</li>
+ *   <li>evaluateResume：返回简历原文 + 评估指导 — LLM 据此自由生成评分和建议</li>
+ * </ul>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -31,6 +40,8 @@ public class ResumeService {
             "^([\\u4e00-\\u9fa5]{2,4})\\s*$", Pattern.MULTILINE);
 
     private final DocumentParser documentParser;
+
+    // ======================== 简历解析（保留） ========================
 
     /**
      * 解析简历文件，调用 DocumentParser 提取文本后结构化解析。
@@ -56,30 +67,53 @@ public class ResumeService {
         return new ResumeParseResult(name, email, phone, education, projects, skills, experience);
     }
 
+    // ======================== 简历评估（改为 LLM 模式） ========================
+
     /**
-     * 评估简历质量并给出改进建议。
+     * 返回简历原文 + 评估指导，由 LLM 据此自由生成评分和改进建议。
+     * 不再硬编码任何评分规则、关键词匹配或评语模板。
      */
     public ResumeEvaluateResult evaluateResume(String resumeText) {
         log.info("Evaluating resume: textLen={}", resumeText != null ? resumeText.length() : 0);
 
         if (resumeText == null || resumeText.isBlank()) {
-            return new ResumeEvaluateResult(0, "简历内容为空", List.of(),
-                    List.of("请提供简历文本"), List.of("上传简历文件进行评估"));
+            return new ResumeEvaluateResult(null,
+                    "请上传简历文件以进行评估。",
+                    null, null, List.of(), List.of(), List.of());
         }
 
-        int overallScore = calculateOverallScore(resumeText);
-        String summary = generateSummary(overallScore);
-        List<String> strengths = extractStrengths(resumeText);
-        List<String> weaknesses = extractWeaknesses(resumeText);
-        List<String> suggestions = generateSuggestions(resumeText, weaknesses);
+        String guidance = buildEvaluationGuidance(resumeText);
 
-        log.info("Resume evaluated: overallScore={}", overallScore);
-        return new ResumeEvaluateResult(overallScore, summary, strengths, weaknesses, suggestions);
+        log.info("Resume evaluation guidance generated, textLen={}", resumeText.length());
+        return new ResumeEvaluateResult(resumeText, guidance,
+                null, null, List.of(), List.of(), List.of());
     }
 
     /**
-     * 调用 DocumentParser 提取文本（本地文件），远程 URL 则降级为文本模式解析。
+     * 构建简历评估指导文本，不包含任何硬编码评分规则或建议模板。
      */
+    private String buildEvaluationGuidance(String resumeText) {
+        return String.format("""
+                请评估以下简历的质量，给出综合评分（0-100）和改进建议：
+
+                【简历内容】
+                %s
+
+                请从以下维度评估：
+                1. 内容完整性：是否包含教育背景、工作/项目经历、技能等必要模块
+                2. 表达质量：描述是否清晰具体，是否使用了量化成果和具体案例
+                3. 岗位匹配度：内容是否聚焦、是否突出了核心竞争力
+
+                请输出格式：
+                - 综合评分：XX分 — [总体评价]
+                - 优点：[列出1-3个优点]
+                - 不足：[列出1-3个需要改进的地方]
+                - 改进建议：[给出具体可操作的改进建议，针对性优化]
+                """, resumeText);
+    }
+
+    // ======================== 文本提取（保留） ========================
+
     private String extractText(String url) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
             log.info("Remote URL detected, using text-mode extraction: {}", url);
@@ -120,34 +154,26 @@ public class ResumeService {
         return url;
     }
 
+    // ======================== 正则提取（保留） ========================
+
     private String extractName(String text) {
         Matcher matcher = NAME_PATTERN.matcher(text);
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-        return "";
+        return matcher.find() ? matcher.group(1) : "";
     }
 
     private String extractEmail(String text) {
         Matcher matcher = EMAIL_PATTERN.matcher(text);
-        if (matcher.find()) {
-            return matcher.group();
-        }
-        return "";
+        return matcher.find() ? matcher.group() : "";
     }
 
     private String extractPhone(String text) {
         Matcher matcher = PHONE_PATTERN.matcher(text);
-        if (matcher.find()) {
-            return matcher.group();
-        }
-        return "";
+        return matcher.find() ? matcher.group() : "";
     }
 
     private List<String> extractEducation(String text) {
         List<String> education = new ArrayList<>();
-        String[] lines = text.split("\n");
-        for (String line : lines) {
+        for (String line : text.split("\n")) {
             if (line.contains("大学") || line.contains("学院") || line.contains("本科")
                     || line.contains("硕士") || line.contains("博士") || line.contains("学历")) {
                 education.add(line.trim());
@@ -158,8 +184,7 @@ public class ResumeService {
 
     private List<String> extractProjects(String text) {
         List<String> projects = new ArrayList<>();
-        String[] lines = text.split("\n");
-        for (String line : lines) {
+        for (String line : text.split("\n")) {
             if (line.contains("项目") || line.contains("实习") || line.contains("开源")) {
                 projects.add(line.trim());
             }
@@ -167,112 +192,43 @@ public class ResumeService {
         return projects;
     }
 
+    /**
+     * 提取技能关键词 — 进行广泛的模式匹配，而非硬编码特定技术栈。
+     * 匹配常见技能表述模式："技能：XXX"、"熟练掌握XXX"、"精通XXX"。
+     */
     private List<String> extractSkills(String text) {
         List<String> skills = new ArrayList<>();
-        String[] keywords = {"Java", "Python", "Go", "JavaScript", "TypeScript", "React", "Vue",
-                "Spring", "MySQL", "Redis", "Docker", "Kubernetes", "Git", "Linux",
-                "微服务", "分布式", "机器学习", "AI", "算法"};
-        for (String keyword : keywords) {
-            if (text.toLowerCase().contains(keyword.toLowerCase())) {
-                skills.add(keyword);
+        Pattern skillPattern = Pattern.compile(
+                "(?:技能[：:]\\s*|熟练掌握|精通|熟悉|了解|掌握)([\\u4e00-\\u9fa5a-zA-Z+#、，,\\s]+?)(?:[。；;]|$)");
+        Matcher matcher = skillPattern.matcher(text);
+        while (matcher.find()) {
+            String group = matcher.group(1).trim();
+            if (!group.isBlank() && group.length() < 100) {
+                skills.add(group);
             }
         }
-        return skills;
+        // 也匹配独立技能行 "Java、Python、Figma" 等
+        if (skills.isEmpty()) {
+            for (String line : text.split("\n")) {
+                String trimmed = line.trim();
+                if (trimmed.length() > 2 && trimmed.length() < 120
+                        && !trimmed.startsWith("http")
+                        && !trimmed.contains("：") && !trimmed.contains(":")) {
+                    skills.add(trimmed);
+                }
+            }
+        }
+        return skills.stream().distinct().limit(10).toList();
     }
 
     private List<String> extractExperience(String text) {
         List<String> experience = new ArrayList<>();
-        String[] lines = text.split("\n");
-        for (String line : lines) {
+        for (String line : text.split("\n")) {
             if (line.contains("公司") || line.contains("工作") || line.contains("担任")
                     || line.contains("负责") || line.contains("经验")) {
                 experience.add(line.trim());
             }
         }
         return experience;
-    }
-
-    private int calculateOverallScore(String text) {
-        int len = text.length();
-        int score = 30;
-
-        if (len > 200) {
-            score += 10;
-        }
-        if (len > 500) {
-            score += 10;
-        }
-        if (len > 1000) {
-            score += 10;
-        }
-
-        if (text.contains("项目") && text.contains("负责")) {
-            score += 10;
-        }
-        if (text.contains("技能") || text.contains("技术")) {
-            score += 10;
-        }
-        if (text.contains("大学") || text.contains("学历")) {
-            score += 10;
-        }
-        if (text.contains("公司") || text.contains("工作")) {
-            score += 10;
-        }
-
-        return Math.min(score, 100);
-    }
-
-    private String generateSummary(int score) {
-        if (score >= 80) {
-            return "简历质量优秀，结构完整，内容充实，可以投递目标职位";
-        }
-        if (score >= 60) {
-            return "简历质量良好，建议进一步优化关键词和项目描述";
-        }
-        return "简历需要较大改进，建议参考优秀简历模板进行重构";
-    }
-
-    private List<String> extractStrengths(String text) {
-        List<String> strengths = new ArrayList<>();
-        if (text.length() > 500) {
-            strengths.add("简历内容充实，信息量充足");
-        }
-        if (text.contains("项目")) {
-            strengths.add("包含项目经验描述");
-        }
-        if (text.contains("公司") || text.contains("工作")) {
-            strengths.add("包含工作经历");
-        }
-        return strengths;
-    }
-
-    private List<String> extractWeaknesses(String text) {
-        List<String> weaknesses = new ArrayList<>();
-        if (text.length() < 200) {
-            weaknesses.add("简历内容过短，建议补充更多细节");
-        }
-        if (!text.contains("项目")) {
-            weaknesses.add("缺少项目经验描述");
-        }
-        if (!text.contains("技能") && !text.contains("技术")) {
-            weaknesses.add("缺少技能列表，不利于ATS系统筛选");
-        }
-        return weaknesses;
-    }
-
-    private List<String> generateSuggestions(String text, List<String> weaknesses) {
-        List<String> suggestions = new ArrayList<>();
-        if (weaknesses.contains("简历内容过短，建议补充更多细节")) {
-            suggestions.add("使用STAR法则描述项目经历（情境-任务-行动-结果）");
-        }
-        if (weaknesses.contains("缺少项目经验描述")) {
-            suggestions.add("添加2-3个核心项目，重点突出个人贡献和技术亮点");
-        }
-        if (weaknesses.contains("缺少技能列表，不利于ATS系统筛选")) {
-            suggestions.add("在简历中增加技能专长板块，列出核心技术栈");
-        }
-        suggestions.add("确保简历格式整洁，字体统一，便于HR快速浏览");
-        suggestions.add("针对不同岗位定制简历，突出匹配的关键词");
-        return suggestions;
     }
 }
