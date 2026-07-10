@@ -126,8 +126,10 @@ class ResumeServiceTest {
                 assertTrue(result.getProjects().stream().anyMatch(p -> p.contains("电商平台")));
 
                 assertFalse(result.getSkills().isEmpty());
-                assertTrue(result.getSkills().contains("Java"));
-                assertTrue(result.getSkills().contains("Spring"));
+                assertTrue(result.getSkills().stream().anyMatch(s -> s.contains("Java")),
+                        "skills should contain Java: " + result.getSkills());
+                assertTrue(result.getSkills().stream().anyMatch(s -> s.contains("Spring")),
+                        "skills should contain Spring: " + result.getSkills());
 
                 assertFalse(result.getExperience().isEmpty());
             }
@@ -176,146 +178,188 @@ class ResumeServiceTest {
     class EvaluateResumeTests {
 
         @Test
-        @DisplayName("null 文本 → 返回 0 分 + 空简历提示")
-        void evaluateResume_nullText_shouldReturnZeroScore() {
+        @DisplayName("null 文本 → 返回提示指导 + null 评分")
+        void evaluateResume_nullText_shouldReturnPromptGuidance() {
             ResumeEvaluateResult result = resumeService.evaluateResume(null);
 
             assertNotNull(result);
-            assertEquals(0, result.getOverallScore());
-            assertEquals("简历内容为空", result.getSummary());
+            assertNull(result.getResumeText());
+            assertEquals("请上传简历文件以进行评估。", result.getGuidance());
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
             assertTrue(result.getStrengths().isEmpty());
-            assertTrue(result.getWeaknesses().contains("请提供简历文本"));
-            assertTrue(result.getSuggestions().contains("上传简历文件进行评估"));
+            assertTrue(result.getWeaknesses().isEmpty());
+            assertTrue(result.getSuggestions().isEmpty());
         }
 
         @Test
-        @DisplayName("blank 文本 → 返回 0 分 + 空简历提示")
-        void evaluateResume_blankText_shouldReturnZeroScore() {
+        @DisplayName("blank 文本 → 返回提示指导 + null 评分")
+        void evaluateResume_blankText_shouldReturnPromptGuidance() {
             ResumeEvaluateResult result = resumeService.evaluateResume("\n  \t");
 
-            assertEquals(0, result.getOverallScore());
-            assertEquals("简历内容为空", result.getSummary());
+            assertNull(result.getResumeText());
+            assertEquals("请上传简历文件以进行评估。", result.getGuidance());
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getStrengths().isEmpty());
+            assertTrue(result.getWeaknesses().isEmpty());
+            assertTrue(result.getSuggestions().isEmpty());
         }
 
         @Test
-        @DisplayName("极短简历(<200字) → 低分 + 内容过短弱点")
-        void evaluateResume_shortText_shouldReturnLowScore() {
-            String shortResume = "张三，Java开发，有项目经验。"; // ~15 chars
+        @DisplayName("短简历 → 返回原文 + 评估指导模板，评分字段为 null")
+        void evaluateResume_shortText_shouldReturnResumeTextAndGuidance() {
+            String shortResume = "张三，Java开发，有项目经验。";
 
             ResumeEvaluateResult result = resumeService.evaluateResume(shortResume);
 
             assertNotNull(result);
-            assertTrue(result.getOverallScore() <= 50,
-                    "Expected <=50 but was " + result.getOverallScore());
-            assertTrue(result.getWeaknesses().contains("简历内容过短，建议补充更多细节"));
-            assertTrue(result.getWeaknesses().contains("缺少技能列表，不利于ATS系统筛选"));
+            assertEquals(shortResume, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertFalse(result.getGuidance().isBlank());
+            assertTrue(result.getGuidance().contains("请评估以下简历的质量"));
+            assertTrue(result.getGuidance().contains("综合评分（0-100）"));
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getStrengths().isEmpty());
+            assertTrue(result.getWeaknesses().isEmpty());
+            assertTrue(result.getSuggestions().isEmpty());
         }
 
         @Test
-        @DisplayName("中等简历(200-500字)含项目 → 中等分数")
-        void evaluateResume_mediumText_shouldReturnMediumScore() {
+        @DisplayName("中等简历 → 指导包含评估维度说明")
+        void evaluateResume_mediumText_shouldContainEvaluationDimensions() {
             String mediumResume = buildResumeText(300, true, false, false, false);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(mediumResume);
 
             assertNotNull(result);
-            assertTrue(result.getOverallScore() >= 40, "score=" + result.getOverallScore());
-            assertTrue(result.getOverallScore() <= 70, "score=" + result.getOverallScore());
-            assertTrue(result.getStrengths().contains("包含项目经验描述"));
+            assertEquals(mediumResume, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("内容完整性"));
+            assertTrue(result.getGuidance().contains("表达质量"));
+            assertTrue(result.getGuidance().contains("岗位匹配度"));
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getStrengths().isEmpty());
         }
 
         @Test
-        @DisplayName("长简历(500-1000字)含项目+技能 → 良好分数")
-        void evaluateResume_longText_shouldReturnGoodScore() {
+        @DisplayName("长简历 → 指导包含原文 + 输出格式说明")
+        void evaluateResume_longText_shouldContainOutputFormat() {
             String longResume = buildResumeText(600, true, true, false, false);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(longResume);
 
-            assertTrue(result.getOverallScore() >= 50, "score=" + result.getOverallScore());
-            assertTrue(result.getStrengths().contains("简历内容充实，信息量充足"));
-            assertTrue(result.getStrengths().contains("包含项目经验描述"));
-            assertTrue(result.getSummary().contains("良好"));
+            assertEquals(longResume, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("综合评分："));
+            assertTrue(result.getGuidance().contains("优点："));
+            assertTrue(result.getGuidance().contains("不足："));
+            assertTrue(result.getGuidance().contains("改进建议："));
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getSuggestions().isEmpty());
         }
 
         @Test
-        @DisplayName("超长简历(>1000字)含全部关键词 → 接近满分但不超100")
-        void evaluateResume_veryLongText_shouldCapAt100() {
+        @DisplayName("超长简历 → LLM 字段全部为 null/空，仅返回原文+指导")
+        void evaluateResume_veryLongText_shouldOnlyReturnTextAndGuidance() {
             String fullResume = buildResumeText(1200, true, true, true, true);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(fullResume);
 
-            assertTrue(result.getOverallScore() >= 80, "score=" + result.getOverallScore());
-            assertTrue(result.getOverallScore() <= 100, "score exceeded 100: " + result.getOverallScore());
-            assertTrue(result.getSummary().contains("优秀"));
-            assertTrue(result.getStrengths().contains("包含工作经历"));
+            assertEquals(fullResume, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertFalse(result.getGuidance().isBlank());
+            // LLM 字段：全部未填充
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getStrengths().isEmpty());
+            assertTrue(result.getWeaknesses().isEmpty());
+            assertTrue(result.getSuggestions().isEmpty());
         }
 
         @Test
-        @DisplayName("缺项目+缺技能 → 对应弱点 + 对应建议")
-        void evaluateResume_missingProjectAndSkills_shouldReportWeaknesses() {
+        @DisplayName("缺项目+缺技能 → 指导仍正常生成，LLM 字段为空")
+        void evaluateResume_missingProjectAndSkills_shouldStillGenerateGuidance() {
             String text = buildResumeText(400, false, false, false, false);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(text);
 
-            assertTrue(result.getWeaknesses().contains("缺少项目经验描述"));
-            assertTrue(result.getWeaknesses().contains("缺少技能列表，不利于ATS系统筛选"));
-
-            // 建议应与弱点匹配
-            assertTrue(result.getSuggestions().stream()
-                    .anyMatch(s -> s.contains("添加2-3个核心项目")));
-            assertTrue(result.getSuggestions().stream()
-                    .anyMatch(s -> s.contains("技能专长板块")));
+            assertEquals(text, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("请评估以下简历的质量"));
+            // LLM 字段全部为空 — 由 LLM 根据指导文本自行判断
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getStrengths().isEmpty());
+            assertTrue(result.getWeaknesses().isEmpty());
+            assertTrue(result.getSuggestions().isEmpty());
         }
 
         @Test
-        @DisplayName("评分边界值 80 → 优秀摘要")
-        void evaluateResume_score80_shouldBeExcellent() {
-            // 构造一个恰好能得 80 分的文本
-            // 基础30 + len>200(+10) + len>500(+10) [=50] + 项目负责(+10) + 技能技术(+10) + 大学学历(+10) + 公司工作(+10) = 90
-            // 要得80: 30 + 10(len>200) + 10(项目负责) + 10(技能) + 10(大学) + 10(公司)
-            // = 80, len=300
+        @DisplayName("含教育+公司 → 指导包含原文，评分/summary 为 null")
+        void evaluateResume_withEducationAndCompany_shouldReturnGuidanceWithText() {
             String text = buildResumeText(300, true, true, true, true);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(text);
 
-            assertEquals(80, result.getOverallScore(), "unexpected score");
-            assertTrue(result.getSummary().contains("优秀"));
+            assertEquals(text, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("张三"));
+            assertTrue(result.getGuidance().contains("北京大学"));
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getStrengths().isEmpty());
         }
 
         @Test
-        @DisplayName("评分边界值 60 → 良好摘要")
-        void evaluateResume_score60_shouldBeGood() {
-            // 30 + 10(len>200) + 10(项目负责) + 10(技能) = 60, len=300
+        @DisplayName("含项目+技能 → 指导包含原文，LLM 字段为 null")
+        void evaluateResume_withProjectAndSkills_shouldReturnTextOnly() {
             String text = buildResumeText(300, true, true, false, false);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(text);
 
-            assertEquals(60, result.getOverallScore(), "unexpected score");
-            assertTrue(result.getSummary().contains("良好"));
+            assertEquals(text, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("电商平台"));
+            assertTrue(result.getGuidance().contains("Java"));
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getWeaknesses().isEmpty());
         }
 
         @Test
-        @DisplayName("评分边界值 59 → 需改进摘要")
-        void evaluateResume_scoreBelow60_shouldNeedImprovement() {
-            // 30 + 10(len>200) + 10(项目负责) = 50, len=300, no skill, no education, no company
+        @DisplayName("仅含项目无技能 → 指导仍正常生成")
+        void evaluateResume_withOnlyProject_shouldStillReturnGuidance() {
             String text = buildResumeText(300, true, false, false, false);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(text);
 
-            assertEquals(50, result.getOverallScore(), "unexpected score");
-            assertTrue(result.getSummary().contains("需要较大改进"));
+            assertEquals(text, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            assertFalse(result.getGuidance().isBlank());
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getSuggestions().isEmpty());
         }
 
         @Test
-        @DisplayName("分数不会超过 100")
-        void evaluateResume_scoreNeverExceeds100() {
-            // 即使所有条件满足，总分也不应超过 100
+        @DisplayName("超长文本 → 所有 LLM 字段保持 null/空")
+        void evaluateResume_maxLength_shouldNotPopulateLlmFields() {
             String text = buildResumeText(2000, true, true, true, true);
 
             ResumeEvaluateResult result = resumeService.evaluateResume(text);
 
-            assertTrue(result.getOverallScore() <= 100,
-                    "Score " + result.getOverallScore() + " should not exceed 100");
+            assertEquals(text, result.getResumeText());
+            assertNotNull(result.getGuidance());
+            // 确认没有任何硬编码评分渗透
+            assertNull(result.getOverallScore());
+            assertNull(result.getSummary());
+            assertTrue(result.getStrengths().isEmpty());
+            assertTrue(result.getWeaknesses().isEmpty());
+            assertTrue(result.getSuggestions().isEmpty());
         }
     }
 

@@ -75,11 +75,11 @@ class JwtTokenProviderTest {
     class GetJtiFromTokenTests {
 
         @Test
-        @DisplayName("无 JTI 的 token → 返回 null")
-        void getJtiFromToken_noJti_shouldReturnNull() {
+        @DisplayName("token 包含 JTI → 返回非 null UUID")
+        void getJtiFromToken_shouldReturnJti() {
             String token = jwtTokenProvider.generateToken(USERNAME);
-            // generateToken 未设置 JTI，应返回 null
-            assertNull(jwtTokenProvider.getJtiFromToken(token));
+            // generateToken 使用 UUID.randomUUID() 设置 JTI
+            assertNotNull(jwtTokenProvider.getJtiFromToken(token));
         }
     }
 

@@ -57,53 +57,53 @@ class MockInterviewToolTest {
         }
 
         @Test
-        @DisplayName("context 含 'Java' → Java基础")
-        void contextWithJava_shouldReturnJavaCategory() {
-            String ctx = "session=test123, 考察Java八股文";
+        @DisplayName("context 含 '技术' → 专业技能")
+        void contextWithTech_shouldReturnProfessionalSkill() {
+            String ctx = "session=test123, 考察技术能力 微服务架构";
 
             NextQuestionResult result = tool.generateNextQuestion(ctx);
 
-            assertEquals("Java基础", result.getCategory());
+            assertEquals("专业技能", result.getCategory());
         }
 
         @Test
-        @DisplayName("context 含 '并发' → 并发编程")
-        void contextWithConcurrency_shouldReturnConcurrencyCategory() {
-            NextQuestionResult result = tool.generateNextQuestion("session=s1, 并发编程 线程池");
+        @DisplayName("context 含 '项目' → 项目经验")
+        void contextWithProject_shouldReturnProjectExperience() {
+            NextQuestionResult result = tool.generateNextQuestion("session=s1, 讨论项目经验 案例");
 
-            assertEquals("并发编程", result.getCategory());
+            assertEquals("项目经验", result.getCategory());
         }
 
         @Test
-        @DisplayName("context 含 '数据库' → 数据库")
-        void contextWithDatabase_shouldReturnDatabaseCategory() {
-            NextQuestionResult result = tool.generateNextQuestion("考察 MySQL 数据库知识");
+        @DisplayName("context 含 '情景' → 情景分析")
+        void contextWithScenario_shouldReturnScenarioAnalysis() {
+            NextQuestionResult result = tool.generateNextQuestion("情景分析 假设场景");
 
-            assertEquals("数据库", result.getCategory());
+            assertEquals("情景分析", result.getCategory());
         }
 
         @Test
-        @DisplayName("context 含 '设计' → 系统设计")
-        void contextWithDesign_shouldReturnSystemDesignCategory() {
-            NextQuestionResult result = tool.generateNextQuestion("系统设计 微服务架构");
+        @DisplayName("context 含 '行为' → 行为面试")
+        void contextWithBehavior_shouldReturnBehavioral() {
+            NextQuestionResult result = tool.generateNextQuestion("行为面试 压力测试 冲突处理");
 
-            assertEquals("系统设计", result.getCategory());
+            assertEquals("行为面试", result.getCategory());
         }
 
         @Test
-        @DisplayName("context 含 '锁' → 并发编程")
-        void contextWithLock_shouldReturnConcurrencyCategory() {
-            NextQuestionResult result = tool.generateNextQuestion("讨论 锁 和 synchronized");
+        @DisplayName("context 含 '规划' → 职业规划")
+        void contextWithCareer_shouldReturnCareerPlanning() {
+            NextQuestionResult result = tool.generateNextQuestion("讨论 规划 和 职业目标");
 
-            assertEquals("并发编程", result.getCategory());
+            assertEquals("职业规划", result.getCategory());
         }
 
         @Test
-        @DisplayName("context 含 'sql' → 数据库")
-        void contextWithSql_shouldReturnDatabaseCategory() {
-            NextQuestionResult result = tool.generateNextQuestion("sql优化 慢查询");
+        @DisplayName("context 含 '介绍自己' → 自我介绍")
+        void contextWithSelfIntro_shouldReturnSelfIntroduction() {
+            NextQuestionResult result = tool.generateNextQuestion("介绍自己 开场白");
 
-            assertEquals("数据库", result.getCategory());
+            assertEquals("自我介绍", result.getCategory());
         }
     }
 
@@ -197,38 +197,40 @@ class MockInterviewToolTest {
     // ==================== generateNextQuestion - 题目选取 ====================
 
     @Nested
-    @DisplayName("generateNextQuestion - 题目选取")
+    @DisplayName("generateNextQuestion - 出题指导")
     class QuestionSelectionTests {
 
         @Test
-        @DisplayName("首个问题 → 返回出题指导")
+        @DisplayName("首个问题 → 返回出题指导（含题号+阶段）")
         void firstQuestion_shouldReturnGuidance() {
-            NextQuestionResult result = tool.generateNextQuestion("Java基础");
+            NextQuestionResult result = tool.generateNextQuestion("技术面试");
 
             assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("Java基础"));
+            assertTrue(result.getGuidance().contains("第1题"));
+            assertTrue(result.getGuidance().contains("专业技能"));
         }
 
         @Test
-        @DisplayName("第2个问题 → 返回出题指导")
+        @DisplayName("第2个问题 → 返回出题指导（含题号+阶段）")
         void secondQuestion_shouldReturnGuidance() {
-            String ctx = "Q1 xxx Java基础";
+            String ctx = "Q1 xxx 技术面试";
 
             NextQuestionResult result = tool.generateNextQuestion(ctx);
 
             assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("Java基础"));
+            assertTrue(result.getGuidance().contains("第2题"));
+            assertTrue(result.getGuidance().contains("专业技能"));
         }
 
         @Test
-        @DisplayName("超出题库数量 → 循环返回指导")
+        @DisplayName("第5个问题 → 返回出题指导（含题号+阶段）")
         void exceedBankSize_shouldReturnGuidance() {
-            String ctx = "Q1 Q2 Q3 Q4 Java基础";
+            String ctx = "Q1 Q2 Q3 Q4 技术面试";
 
             NextQuestionResult result = tool.generateNextQuestion(ctx);
 
             assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("Java基础"));
+            assertTrue(result.getGuidance().contains("第5题"));
         }
     }
 
@@ -277,13 +279,13 @@ class MockInterviewToolTest {
     class GuidanceTests {
 
         @Test
-        @DisplayName("guidance 包含题号、分类")
+        @DisplayName("guidance 包含题号、阶段分类")
         void guidance_shouldContainMetadata() {
-            NextQuestionResult result = tool.generateNextQuestion("Java基础");
+            NextQuestionResult result = tool.generateNextQuestion("技术面试");
 
             assertNotNull(result.getGuidance());
             assertTrue(result.getGuidance().contains("第1题"));
-            assertTrue(result.getGuidance().contains("Java基础"));
+            assertTrue(result.getGuidance().contains("专业技能"));
         }
     }
 }

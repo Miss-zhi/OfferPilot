@@ -7,35 +7,35 @@ description: API 层开发规范，涉及 Controller 编写、Form 表单、ApiR
 
 ## 启动类配置
 
-`OfferPilotApplication` 启动类上必须添加 `@EnableJpaRepositories` 和 `@EntityScan` 注解，否则 Spring Data JPA Repository 接口无法被 Spring 识别注入：
+`HarnessApplication` 启动类上必须添加 `@MapperScan` 注解，否则 MyBatis `@Mapper` 接口无法被 Spring 识别注入：
 
 ```java
 @SpringBootApplication
-@EnableJpaRepositories("com.tutorial.offerpilot.repository")
-@EntityScan("com.tutorial.offerpilot.entity")
-public class OfferPilotApplication {
+@ComponentScan(basePackages = {"com.harness.api", "com.harness.business", "com.harness.domain", "com.harness.component"})
+@MapperScan("com.harness.domain.mapper")
+public class HarnessApplication {
     public static void main(String[] args) {
-        SpringApplication.run(OfferPilotApplication.class, args);
+        SpringApplication.run(HarnessApplication.class, args);
     }
 }
 ```
 
-- `@EnableJpaRepositories` 扫描路径必须为 `com.tutorial.offerpilot.repository`
-- `@EntityScan` 扫描路径必须为 `com.tutorial.offerpilot.entity`
+- `@MapperScan` 扫描路径必须为 `com.harness.domain.mapper`
+- `@ComponentScan` 必须覆盖所有业务模块包（api、business、domain、component）
 - 禁止在启动类中编写任何业务代码
 
 ## 请求规范
 
 - 所有请求参数必须是**基础类型**（`Long`/`String`/`Integer` 等）或 **Form 表单对象**
-- Form 类定义在 `com.tutorial.offerpilot.dto` 包
-- Form 命名规则：`{Controller名词前缀}{方法名}Form` / `{Controller名词前缀}{方法名}Request`
+- Form 类定义在 `com.harness.api.form` 包
+- Form 命名规则：`{Controller名词前缀}{方法名}Form`
   - 例：`MemoryController` 的 create 方法 → `MemoryCreateForm`
   - 例：`UserController` 的 update 方法 → `UserUpdateForm`
 
 ## 响应规范
 
 - 所有 Controller 方法必须返回 `ApiResponse<T>`
-- `ApiResponse` 定义在 `com.tutorial.offerpilot.common`
+- `ApiResponse` 定义在 `com.harness.api.common`
 - 成功：`ApiResponse.success(data)` 或 `ApiResponse.success()`
 - Controller 不捕获任何异常，由全局异常处理器统一处理
 
@@ -43,7 +43,7 @@ public class OfferPilotApplication {
 
 - api 层负责 Form 表单字段的基本验证
 - 验证失败时抛出 `ApiRequestException`
-- `ApiRequestException` / `BusinessException` 定义在 `com.tutorial.offerpilot.exception`
+- `ApiRequestException` 定义在 `com.harness.api.common`
 - 验证逻辑直接写在 Controller 方法中，不做复杂验证
 
 ```java
@@ -70,5 +70,6 @@ public ApiResponse<MemoryItem> create(@RequestBody MemoryCreateForm form) {
 
 | 层 | 职责 |
 |----|------|
-| Controller | 接收请求 → 验证 Form/Request → 调用 Service → 返回 ApiResponse |
-| Service | 执行业务逻辑，调用 Repository，返回 Entity 或业务结果 |
+| Controller (api) | 接收请求 → 验证 Form → 调用 Service → 返回 ApiResponse |
+| Service (business) | 执行业务逻辑，参数全部扁平化（基础类型） |
+| Component interfaces | 组件服务接口，参数全部扁平化（基础类型） |
