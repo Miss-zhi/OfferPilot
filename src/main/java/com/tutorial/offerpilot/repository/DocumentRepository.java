@@ -19,5 +19,7 @@ public interface DocumentRepository extends JpaRepository<KbDocument, Long> {
 
     long countByKbId(String kbId);
 
+    long countByKbIdAndStatus(String kbId, String status);
+
     void deleteByKbId(String kbId);
 }

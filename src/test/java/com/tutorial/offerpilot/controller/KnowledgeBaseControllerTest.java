@@ -4,9 +4,16 @@
 package com.tutorial.offerpilot.controller;
 
 import com.tutorial.offerpilot.dto.kb.CreateKbRequest;
+import com.tutorial.offerpilot.dto.kb.DocDetailResponse;
+import com.tutorial.offerpilot.dto.kb.DocProgress;
+import com.tutorial.offerpilot.dto.kb.DocResponse;
 import com.tutorial.offerpilot.dto.kb.KbResponse;
+import com.tutorial.offerpilot.dto.kb.KbStatsResponse;
+import com.tutorial.offerpilot.dto.kb.SearchTestRequest;
+import com.tutorial.offerpilot.dto.kb.SearchTestResponse;
 import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.exception.GlobalExceptionHandler;
+import com.tutorial.offerpilot.service.FileService;
 import com.tutorial.offerpilot.service.KnowledgeBaseService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +32,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -43,6 +51,9 @@ class KnowledgeBaseControllerTest {
 
     @Mock
     private KnowledgeBaseService kbService;
+
+    @Mock
+    private FileService fileService;
 
     @InjectMocks
     private KnowledgeBaseController controller;
@@ -248,6 +259,384 @@ class KnowledgeBaseControllerTest {
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value(403))
                     .andExpect(jsonPath("$.message").value("无权删除此知识库"));
+        }
+    }
+
+    // ==================== 辅助方法 ====================
+
+    private DocResponse buildDocResponse(String docId, String kbId) {
+        DocResponse doc = new DocResponse();
+        doc.setDocId(docId);
+        doc.setKbId(kbId);
+        doc.setFileName("test.pdf");
+        doc.setFileType("pdf");
+        doc.setFileSize(1024L);
+        doc.setChunkCount(0);
+        doc.setChunkStrategy("AUTO");
+        doc.setStatus("UPLOADED");
+        doc.setProgress(0);
+        return doc;
+    }
+
+    private KbStatsResponse buildStatsResponse(String kbId) {
+        KbStatsResponse stats = new KbStatsResponse();
+        stats.setKbId(kbId);
+        stats.setName("测试库");
+        stats.setDocumentCount(5);
+        stats.setChunkCount(50);
+        stats.setActiveDocuments(3L);
+        stats.setFailedDocuments(2L);
+        return stats;
+    }
+
+    private DocDetailResponse buildDocDetailResponse(String docId, String kbId) {
+        DocDetailResponse detail = new DocDetailResponse();
+        detail.setDocId(docId);
+        detail.setKbId(kbId);
+        detail.setFileName("test.pdf");
+        detail.setFileType("pdf");
+        detail.setStatus("ACTIVE");
+        detail.setProgress(100);
+        detail.setErrorMessage(null);
+        detail.setChunks(List.of());
+        return detail;
+    }
+
+    private DocProgress buildDocProgress(String status, Integer progress) {
+        return new DocProgress(status, progress);
+    }
+
+    private SearchTestResponse buildSearchResponse(int total) {
+        SearchTestResponse resp = new SearchTestResponse();
+        resp.setTotal(total);
+        resp.setLatencyMs(42L);
+        resp.setHits(List.of());
+        return resp;
+    }
+
+    // ==================== GET /{kbId}/stats ====================
+
+    @Nested
+    @DisplayName("GET /{kbId}/stats")
+    class GetKbStatsTests {
+
+        @Test
+        @DisplayName("正常 → 200 + KbStatsResponse")
+        void getKbStats_shouldReturn200() throws Exception {
+            KbStatsResponse stats = buildStatsResponse("kb-001");
+            when(kbService.getKbStats(eq("kb-001"), eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(stats);
+
+            mockMvc.perform(get("/api/v1/kb/kb-001/stats"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.kbId").value("kb-001"))
+                    .andExpect(jsonPath("$.data.name").value("测试库"))
+                    .andExpect(jsonPath("$.data.documentCount").value(5))
+                    .andExpect(jsonPath("$.data.chunkCount").value(50))
+                    .andExpect(jsonPath("$.data.activeDocuments").value(3))
+                    .andExpect(jsonPath("$.data.failedDocuments").value(2));
+
+            verify(kbService).getKbStats(eq("kb-001"), eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("KB 不存在 → 404")
+        void getKbStats_notFound_shouldReturn404() throws Exception {
+            when(kbService.getKbStats(eq("kb-999"), eq(USER_ID), any(UserDetails.class)))
+                    .thenThrow(new BusinessException(404, "知识库不存在"));
+
+            mockMvc.perform(get("/api/v1/kb/kb-999/stats"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(404));
+        }
+    }
+
+    // ==================== GET /{kbId}/docs ====================
+
+    @Nested
+    @DisplayName("GET /{kbId}/docs")
+    class ListDocsTests {
+
+        @Test
+        @DisplayName("正常 → 200 + 文档列表")
+        void listDocs_shouldReturn200() throws Exception {
+            DocResponse doc1 = buildDocResponse("doc-1", "kb-001");
+            DocResponse doc2 = buildDocResponse("doc-2", "kb-001");
+            doc2.setChunkCount(10);
+            when(kbService.listDocs(eq("kb-001"), eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(List.of(doc1, doc2));
+
+            mockMvc.perform(get("/api/v1/kb/kb-001/docs"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.length()").value(2))
+                    .andExpect(jsonPath("$.data[0].docId").value("doc-1"))
+                    .andExpect(jsonPath("$.data[0].fileName").value("test.pdf"))
+                    .andExpect(jsonPath("$.data[1].docId").value("doc-2"))
+                    .andExpect(jsonPath("$.data[1].chunkCount").value(10));
+
+            verify(kbService).listDocs(eq("kb-001"), eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("空列表 → 200 + []")
+        void listDocs_empty_shouldReturnEmptyList() throws Exception {
+            when(kbService.listDocs(eq("kb-001"), eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(List.of());
+
+            mockMvc.perform(get("/api/v1/kb/kb-001/docs"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").isArray())
+                    .andExpect(jsonPath("$.data").isEmpty());
+        }
+    }
+
+    // ==================== POST /{kbId}/docs ====================
+
+    @Nested
+    @DisplayName("POST /{kbId}/docs")
+    class UploadDocTests {
+
+        @Test
+        @DisplayName("正常上传 → 201 + DocResponse")
+        void uploadDoc_shouldReturn201() throws Exception {
+            when(fileService.saveFile(any(), eq("kb-docs"))).thenReturn("/tmp/kb-docs/test.pdf");
+
+            DocResponse doc = buildDocResponse("doc-new", "kb-001");
+            when(kbService.createDoc(eq("kb-001"), eq("test.pdf"), anyString(), eq("pdf"),
+                    anyLong(), eq("AUTO"), eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(doc);
+
+            mockMvc.perform(multipart("/api/v1/kb/kb-001/docs")
+                            .file(new MockMultipartFile("file", "test.pdf", "application/pdf", "test content".getBytes()))
+                            .param("chunkStrategy", "AUTO"))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.docId").value("doc-new"))
+                    .andExpect(jsonPath("$.data.kbId").value("kb-001"))
+                    .andExpect(jsonPath("$.data.fileName").value("test.pdf"))
+                    .andExpect(jsonPath("$.data.status").value("UPLOADED"));
+
+            verify(kbService).createDoc(eq("kb-001"), eq("test.pdf"), anyString(),
+                    eq("pdf"), anyLong(), eq("AUTO"), eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("默认 chunkStrategy=AUTO")
+        void uploadDoc_defaultStrategy_shouldUseAuto() throws Exception {
+            when(fileService.saveFile(any(), eq("kb-docs"))).thenReturn("/tmp/kb-docs/test.txt");
+
+            DocResponse doc = buildDocResponse("doc-def", "kb-001");
+            doc.setFileType("txt");
+            when(kbService.createDoc(eq("kb-001"), eq("test.txt"), anyString(), eq("txt"),
+                    anyLong(), eq("AUTO"), eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(doc);
+
+            mockMvc.perform(multipart("/api/v1/kb/kb-001/docs")
+                            .file(new MockMultipartFile("file", "test.txt", "text/plain", "hello".getBytes())))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.docId").value("doc-def"));
+        }
+
+        @Test
+        @DisplayName("KB 不存在 → 404")
+        void uploadDoc_notFound_shouldReturn404() throws Exception {
+            when(fileService.saveFile(any(), eq("kb-docs"))).thenReturn("/tmp/kb-docs/test.txt");
+            when(kbService.createDoc(eq("kb-999"), any(), any(), any(), anyLong(), any(),
+                    eq(USER_ID), any(UserDetails.class)))
+                    .thenThrow(new BusinessException(404, "知识库不存在"));
+
+            mockMvc.perform(multipart("/api/v1/kb/kb-999/docs")
+                            .file(new MockMultipartFile("file", "test.txt", "text/plain", "content".getBytes())))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(404));
+        }
+    }
+
+    // ==================== GET /{kbId}/docs/{docId} ====================
+
+    @Nested
+    @DisplayName("GET /{kbId}/docs/{docId}")
+    class GetDocDetailTests {
+
+        @Test
+        @DisplayName("正常 → 200 + DocDetailResponse")
+        void getDocDetail_shouldReturn200() throws Exception {
+            DocDetailResponse detail = buildDocDetailResponse("doc-1", "kb-001");
+            when(kbService.getDocDetail(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(detail);
+
+            mockMvc.perform(get("/api/v1/kb/kb-001/docs/doc-1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.docId").value("doc-1"))
+                    .andExpect(jsonPath("$.data.kbId").value("kb-001"))
+                    .andExpect(jsonPath("$.data.status").value("ACTIVE"))
+                    .andExpect(jsonPath("$.data.progress").value(100));
+
+            verify(kbService).getDocDetail(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("文档不存在 → 404")
+        void getDocDetail_notFound_shouldReturn404() throws Exception {
+            when(kbService.getDocDetail(eq("kb-001"), eq("doc-999"), eq(USER_ID), any(UserDetails.class)))
+                    .thenThrow(new BusinessException(404, "文档不存在"));
+
+            mockMvc.perform(get("/api/v1/kb/kb-001/docs/doc-999"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(404));
+        }
+    }
+
+    // ==================== DELETE /{kbId}/docs/{docId} ====================
+
+    @Nested
+    @DisplayName("DELETE /{kbId}/docs/{docId}")
+    class DeleteDocTests {
+
+        @Test
+        @DisplayName("正常删除 → 204 No Content")
+        void deleteDoc_shouldReturn204() throws Exception {
+            doNothing().when(kbService).deleteDoc(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class));
+
+            mockMvc.perform(delete("/api/v1/kb/kb-001/docs/doc-1"))
+                    .andExpect(status().isNoContent())
+                    .andExpect(content().string(""));
+
+            verify(kbService).deleteDoc(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("文档不存在 → 404")
+        void deleteDoc_notFound_shouldReturn404() throws Exception {
+            doThrow(new BusinessException(404, "文档不存在"))
+                    .when(kbService).deleteDoc(eq("kb-001"), eq("doc-999"), eq(USER_ID), any(UserDetails.class));
+
+            mockMvc.perform(delete("/api/v1/kb/kb-001/docs/doc-999"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(404));
+        }
+    }
+
+    // ==================== GET /{kbId}/docs/{docId}/progress ====================
+
+    @Nested
+    @DisplayName("GET /{kbId}/docs/{docId}/progress")
+    class GetDocProgressTests {
+
+        @Test
+        @DisplayName("正常 → 200 + DocProgress")
+        void getDocProgress_shouldReturn200() throws Exception {
+            DocProgress progress = buildDocProgress("INDEXING", 80);
+            when(kbService.getDocProgress(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(progress);
+
+            mockMvc.perform(get("/api/v1/kb/kb-001/docs/doc-1/progress"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.status").value("INDEXING"))
+                    .andExpect(jsonPath("$.data.progress").value(80));
+
+            verify(kbService).getDocProgress(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("文档不存在 → 404")
+        void getDocProgress_notFound_shouldReturn404() throws Exception {
+            when(kbService.getDocProgress(eq("kb-001"), eq("doc-999"), eq(USER_ID), any(UserDetails.class)))
+                    .thenThrow(new BusinessException(404, "文档不存在"));
+
+            mockMvc.perform(get("/api/v1/kb/kb-001/docs/doc-999/progress"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(404));
+        }
+    }
+
+    // ==================== POST /{kbId}/docs/{docId}/reindex ====================
+
+    @Nested
+    @DisplayName("POST /{kbId}/docs/{docId}/reindex")
+    class ReindexDocTests {
+
+        @Test
+        @DisplayName("正常 → 200 + ApiResponse")
+        void reindexDoc_shouldReturn200() throws Exception {
+            doNothing().when(kbService).reindexDoc(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class));
+
+            mockMvc.perform(post("/api/v1/kb/kb-001/docs/doc-1/reindex"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200));
+
+            verify(kbService).reindexDoc(eq("kb-001"), eq("doc-1"), eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("文档不存在 → 404")
+        void reindexDoc_notFound_shouldReturn404() throws Exception {
+            doThrow(new BusinessException(404, "文档不存在"))
+                    .when(kbService).reindexDoc(eq("kb-001"), eq("doc-999"), eq(USER_ID), any(UserDetails.class));
+
+            mockMvc.perform(post("/api/v1/kb/kb-001/docs/doc-999/reindex"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(404));
+        }
+    }
+
+    // ==================== POST /{kbId}/search ====================
+
+    @Nested
+    @DisplayName("POST /{kbId}/search")
+    class SearchKbTests {
+
+        @Test
+        @DisplayName("正常检索 → 200 + SearchTestResponse")
+        void searchKb_shouldReturn200() throws Exception {
+            SearchTestResponse resp = buildSearchResponse(3);
+            when(kbService.searchKb(eq("kb-001"), eq("Java面试"), isNull(), eq(5),
+                    eq(USER_ID), any(UserDetails.class)))
+                    .thenReturn(resp);
+
+            mockMvc.perform(post("/api/v1/kb/kb-001/search")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"query": "Java面试", "topK": 5}"""))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.total").value(3))
+                    .andExpect(jsonPath("$.data.latencyMs").value(42));
+
+            verify(kbService).searchKb(eq("kb-001"), eq("Java面试"), isNull(), eq(5),
+                    eq(USER_ID), any(UserDetails.class));
+        }
+
+        @Test
+        @DisplayName("query 为空 → 400 参数校验失败")
+        void searchKb_blankQuery_shouldReturn400() throws Exception {
+            mockMvc.perform(post("/api/v1/kb/kb-001/search")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"query": ""}"""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400));
+
+            verify(kbService, never()).searchKb(any(), any(), any(), anyInt(), any(), any());
+        }
+
+        @Test
+        @DisplayName("KB 不存在 → 404")
+        void searchKb_notFound_shouldReturn404() throws Exception {
+            when(kbService.searchKb(eq("kb-999"), eq("查询"), isNull(), eq(5),
+                    eq(USER_ID), any(UserDetails.class)))
+                    .thenThrow(new BusinessException(404, "知识库不存在"));
+
+            mockMvc.perform(post("/api/v1/kb/kb-999/search")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"query": "查询"}"""))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value(404));
         }
     }
 }
