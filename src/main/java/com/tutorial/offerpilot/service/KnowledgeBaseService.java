@@ -13,6 +13,7 @@ import com.tutorial.offerpilot.dto.tool.QuestionSearchResult;
 import com.tutorial.offerpilot.dto.tool.ResourceListResult;
 import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.KbKnowledgeBase;
+import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.exception.ResourceNotFoundException;
 import com.tutorial.offerpilot.repository.ChunkRepository;
 import com.tutorial.offerpilot.repository.DocumentRepository;
@@ -92,9 +93,15 @@ public class KnowledgeBaseService {
     }
 
     @Transactional
-    public void deleteKnowledgeBase(String kbId) {
+    public void deleteKnowledgeBase(String kbId, String userId, UserDetails currentUser) {
         KbKnowledgeBase kb = kbRepo.findByKbId(kbId)
                 .orElseThrow(() -> new ResourceNotFoundException("知识库不存在: " + kbId));
+
+        boolean isAdmin = currentUser.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isAdmin && (kb.getOwnerId() == null || !kb.getOwnerId().equals(userId))) {
+            throw new BusinessException(403, "无权删除此知识库");
+        }
 
         String collectionName = kb.getMilvusCollection();
 

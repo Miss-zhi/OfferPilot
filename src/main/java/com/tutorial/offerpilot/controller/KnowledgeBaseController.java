@@ -12,7 +12,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
@@ -21,9 +20,9 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/admin/kb")
+@RequestMapping("/api/v1/kb")
 @RequiredArgsConstructor
-public class KnowledgeBaseAdminController {
+public class KnowledgeBaseController {
 
     private final KnowledgeBaseService kbService;
 
@@ -45,9 +44,11 @@ public class KnowledgeBaseAdminController {
     }
 
     @DeleteMapping("/{kbId}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteKnowledgeBase(@PathVariable String kbId) {
-        kbService.deleteKnowledgeBase(kbId);
+    public ResponseEntity<Void> deleteKnowledgeBase(
+            @PathVariable String kbId,
+            @AuthenticationPrincipal UserDetails currentUser) {
+        String userId = getUserId(currentUser);
+        kbService.deleteKnowledgeBase(kbId, userId, currentUser);
         return ResponseEntity.noContent().build();
     }
 

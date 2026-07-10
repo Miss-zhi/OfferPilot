@@ -10,6 +10,7 @@ import com.tutorial.offerpilot.dto.kb.SearchTestResponse;
 import com.tutorial.offerpilot.dto.tool.QuestionSearchResult;
 import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.KbKnowledgeBase;
+import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.exception.ResourceNotFoundException;
 import com.tutorial.offerpilot.repository.ChunkRepository;
 import com.tutorial.offerpilot.repository.DocumentRepository;
@@ -165,14 +166,15 @@ class KnowledgeBaseServiceTest {
     class DeleteTests {
 
         @Test
-        @DisplayName("正常删除 → 级联删除 Milvus/Chunk/Doc/KB")
-        void deleteKnowledgeBase_shouldCascadeDelete() {
+        @DisplayName("Admin 删除 → 级联删除 Milvus/Chunk/Doc/KB")
+        void deleteKnowledgeBase_asAdmin_shouldCascadeDelete() {
             KbKnowledgeBase kb = buildKb(KB_ID, "PUBLIC");
+            kb.setOwnerId(null);
             when(kbRepo.findByKbId(KB_ID)).thenReturn(Optional.of(kb));
             when(chunkRepo.countByKbId(KB_ID)).thenReturn(5L);
             when(docRepo.countByKbId(KB_ID)).thenReturn(2L);
 
-            kbService.deleteKnowledgeBase(KB_ID);
+            kbService.deleteKnowledgeBase(KB_ID, "admin", adminUser);
 
             verify(chunkRepo).deleteByKbId(KB_ID);
             verify(docRepo).deleteByKbId(KB_ID);
@@ -180,11 +182,53 @@ class KnowledgeBaseServiceTest {
         }
 
         @Test
+        @DisplayName("普通用户删除自己的 KB → 成功")
+        void deleteKnowledgeBase_asOwner_shouldSucceed() {
+            KbKnowledgeBase kb = buildKb(KB_ID, "PRIVATE");
+            kb.setOwnerId(USER_ID);
+            when(kbRepo.findByKbId(KB_ID)).thenReturn(Optional.of(kb));
+            when(chunkRepo.countByKbId(KB_ID)).thenReturn(0L);
+            when(docRepo.countByKbId(KB_ID)).thenReturn(0L);
+
+            kbService.deleteKnowledgeBase(KB_ID, USER_ID, normalUser);
+
+            verify(kbRepo).delete(kb);
+        }
+
+        @Test
+        @DisplayName("普通用户删除他人的 KB → 抛 BusinessException 403")
+        void deleteKnowledgeBase_asNonOwner_shouldThrow403() {
+            KbKnowledgeBase kb = buildKb(KB_ID, "PRIVATE");
+            kb.setOwnerId("other-user");
+            when(kbRepo.findByKbId(KB_ID)).thenReturn(Optional.of(kb));
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> kbService.deleteKnowledgeBase(KB_ID, USER_ID, normalUser));
+            assertEquals(403, ex.getErrorCode());
+            assertEquals("无权删除此知识库", ex.getMessage());
+            verify(chunkRepo, never()).deleteByKbId(any());
+        }
+
+        @Test
+        @DisplayName("普通用户删除 PUBLIC 库（ownerId=null）→ 抛 BusinessException 403")
+        void deleteKnowledgeBase_publicKbByNonAdmin_shouldThrow403() {
+            KbKnowledgeBase kb = buildKb(KB_ID, "PUBLIC");
+            kb.setOwnerId(null);
+            when(kbRepo.findByKbId(KB_ID)).thenReturn(Optional.of(kb));
+
+            BusinessException ex = assertThrows(BusinessException.class,
+                    () -> kbService.deleteKnowledgeBase(KB_ID, USER_ID, normalUser));
+            assertEquals(403, ex.getErrorCode());
+            verify(chunkRepo, never()).deleteByKbId(any());
+        }
+
+        @Test
         @DisplayName("知识库不存在 → 抛 ResourceNotFoundException")
         void deleteKnowledgeBase_notFound_shouldThrow() {
             when(kbRepo.findByKbId(KB_ID)).thenReturn(Optional.empty());
 
-            assertThrows(ResourceNotFoundException.class, () -> kbService.deleteKnowledgeBase(KB_ID));
+            assertThrows(ResourceNotFoundException.class,
+                    () -> kbService.deleteKnowledgeBase(KB_ID, USER_ID, normalUser));
             verify(chunkRepo, never()).deleteByKbId(any());
         }
 
@@ -197,7 +241,7 @@ class KnowledgeBaseServiceTest {
             when(chunkRepo.countByKbId(KB_ID)).thenReturn(0L);
             when(docRepo.countByKbId(KB_ID)).thenReturn(0L);
 
-            kbService.deleteKnowledgeBase(KB_ID);
+            kbService.deleteKnowledgeBase(KB_ID, "admin", adminUser);
 
             verifyNoInteractions(milvusClient);
             verify(chunkRepo).deleteByKbId(KB_ID);

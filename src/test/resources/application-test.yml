@@ -1,0 +1,80 @@
+# Copyright (c) 2020-06-29 Qoder. All rights reserved.
+# Test profile — used by AbstractServiceIT (testcontainers MySQL)
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # url/username/password injected via @DynamicPropertySource in AbstractServiceIT
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+  h2:
+    console:
+      enabled: false
+
+  sql:
+    init:
+      mode: never
+
+# Disable AgentScope auto-init in tests
+agentscope:
+  model:
+    provider: dashscope
+    api-key: ${DASHSCOPE_API_KEY:sk-test-placeholder}
+    model-name: qwen-max
+    temperature: 0.7
+    max-tokens: 4096
+
+  agent:
+    workspace: ./target/test-workspace
+    state-store: memory
+    compaction:
+      enabled: false
+
+  knowledge:
+    auto-init: false
+
+# App config
+app:
+  jwt:
+    secret: test-jwt-secret-for-integration-tests-only
+    expiration-ms: 86400000
+
+  milvus:
+    host: localhost
+    port: 19530
+    connect-timeout-ms: 10000
+    keep-alive-time-ms: 55000
+    database: offerpilot
+
+  redis:
+    host: localhost
+    port: 6379
+    password:
+    timeout-ms: 5000
+    session-ttl-minutes: 30
+    search-cache-ttl-minutes: 10
+
+  upload-dir: ./target/test-uploads
+  allowed-file-types: pdf,mp3,wav,m4a,txt,md,docx
+
+  async:
+    core-pool-size: 2
+    max-pool-size: 4
+    queue-capacity: 50
+
+logging:
+  level:
+    root: WARN
+    com.tutorial.offerpilot: DEBUG
+    org.springframework.security: WARN
+    org.testcontainers: INFO
+    org.hibernate.SQL: WARN

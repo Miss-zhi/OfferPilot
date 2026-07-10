@@ -37,10 +37,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(IllegalArgumentException e) {
-        log.warn("Illegal argument: {}", e.getMessage());
+        log.error("Unexpected illegal argument", e);
         return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(400, e.getMessage()));
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error(500, "服务器内部错误"));
     }
 
     @ExceptionHandler(Exception.class)

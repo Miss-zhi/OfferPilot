@@ -7,6 +7,7 @@ import com.tutorial.offerpilot.entity.AnalysisReport;
 import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.InterviewSession;
 import com.tutorial.offerpilot.entity.KnowledgeMastery;
+import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.repository.AnalysisReportRepository;
 import com.tutorial.offerpilot.repository.InterviewQuestionRepository;
 import com.tutorial.offerpilot.repository.InterviewSessionRepository;
@@ -39,7 +40,7 @@ public class InterviewAnalysisService {
 
     public AnalysisReport getReportByReportId(String reportId) {
         return reportRepo.findByReportId(reportId)
-                .orElseThrow(() -> new IllegalArgumentException("报告不存在: " + reportId));
+                .orElseThrow(() -> new BusinessException(404, "报告不存在: " + reportId));
     }
 
     /**
@@ -82,11 +83,11 @@ public class InterviewAnalysisService {
     @Transactional
     public AnalysisReport generateReport(String sessionId) {
         InterviewSession session = sessionRepo.findBySessionId(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("Session not found: " + sessionId));
+                .orElseThrow(() -> new BusinessException(404, "Session not found: " + sessionId));
 
         List<InterviewQuestion> questions = questionRepo.findBySessionIdOrderBySortOrder(sessionId);
         if (questions.isEmpty()) {
-            throw new IllegalArgumentException("No questions found for session: " + sessionId);
+            throw new BusinessException(400, "No questions found for session: " + sessionId);
         }
 
         double avgScore = questions.stream()

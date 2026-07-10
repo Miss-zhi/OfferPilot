@@ -45,15 +45,15 @@ class MockInterviewToolTest {
     class CategoryDetectionTests {
 
         @Test
-        @DisplayName("null context → 通用分类 + easy 难度")
+        @DisplayName("null context → 自我介绍 + easy 难度")
         void nullContext_shouldReturnDefault() {
             NextQuestionResult result = tool.generateNextQuestion(null);
 
             assertNotNull(result);
-            assertEquals("通用", result.getCategory());
-            assertEquals("medium", result.getDifficulty());
-            assertNotNull(result.getQuestion());
-            assertTrue(result.getReason().contains("第1题"));
+            assertEquals("自我介绍", result.getCategory());
+            assertEquals("easy", result.getDifficulty());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("第1题"));
         }
 
         @Test
@@ -201,32 +201,34 @@ class MockInterviewToolTest {
     class QuestionSelectionTests {
 
         @Test
-        @DisplayName("首个问题 → 题库第一题")
-        void firstQuestion_shouldReturnFirstFromBank() {
+        @DisplayName("首个问题 → 返回出题指导")
+        void firstQuestion_shouldReturnGuidance() {
             NextQuestionResult result = tool.generateNextQuestion("Java基础");
 
-            assertEquals("请解释Java中HashMap的实现原理", result.getQuestion());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("Java基础"));
         }
 
         @Test
-        @DisplayName("第2个问题 → 题库第2题")
-        void secondQuestion_shouldReturnSecondFromBank() {
+        @DisplayName("第2个问题 → 返回出题指导")
+        void secondQuestion_shouldReturnGuidance() {
             String ctx = "Q1 xxx Java基础";
 
             NextQuestionResult result = tool.generateNextQuestion(ctx);
 
-            assertEquals("谈谈Java内存模型（JMM）的理解", result.getQuestion());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("Java基础"));
         }
 
         @Test
-        @DisplayName("超出题库数量 → 循环回到第1题")
-        void exceedBankSize_shouldWrapAround() {
-            // Java基础有4题，第5题应回到第1题
+        @DisplayName("超出题库数量 → 循环返回指导")
+        void exceedBankSize_shouldReturnGuidance() {
             String ctx = "Q1 Q2 Q3 Q4 Java基础";
 
             NextQuestionResult result = tool.generateNextQuestion(ctx);
 
-            assertEquals("请解释Java中HashMap的实现原理", result.getQuestion());
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("Java基础"));
         }
     }
 
@@ -268,20 +270,20 @@ class MockInterviewToolTest {
         }
     }
 
-    // ==================== generateNextQuestion - Reason 构建 ====================
+    // ==================== generateNextQuestion - Guidance 构建 ====================
 
     @Nested
-    @DisplayName("generateNextQuestion - Reason 构建")
-    class ReasonTests {
+    @DisplayName("generateNextQuestion - Guidance 构建")
+    class GuidanceTests {
 
         @Test
-        @DisplayName("reason 包含题号、分类、难度")
-        void reason_shouldContainMetadata() {
+        @DisplayName("guidance 包含题号、分类")
+        void guidance_shouldContainMetadata() {
             NextQuestionResult result = tool.generateNextQuestion("Java基础");
 
-            assertTrue(result.getReason().contains("第1题"));
-            assertTrue(result.getReason().contains("Java基础"));
-            assertTrue(result.getReason().contains("easy"));
+            assertNotNull(result.getGuidance());
+            assertTrue(result.getGuidance().contains("第1题"));
+            assertTrue(result.getGuidance().contains("Java基础"));
         }
     }
 }

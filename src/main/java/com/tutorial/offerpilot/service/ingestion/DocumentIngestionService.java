@@ -7,6 +7,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.tutorial.offerpilot.entity.KbChunk;
 import com.tutorial.offerpilot.entity.KbDocument;
 import com.tutorial.offerpilot.entity.KbKnowledgeBase;
+import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.repository.ChunkRepository;
 import com.tutorial.offerpilot.repository.DocumentRepository;
 import com.tutorial.offerpilot.repository.KnowledgeBaseRepository;
@@ -47,7 +48,7 @@ public class DocumentIngestionService {
         log.info("Document ingestion started: docId={}", docId);
 
         KbDocument doc = docRepo.findByDocId(docId)
-                .orElseThrow(() -> new IllegalArgumentException("文档不存在: " + docId));
+                .orElseThrow(() -> new BusinessException(404, "文档不存在: " + docId));
 
         try {
             // Phase 1: PARSING
@@ -153,7 +154,7 @@ public class DocumentIngestionService {
     private String getCollectionName(String kbId) {
         return kbRepo.findByKbId(kbId)
                 .map(KbKnowledgeBase::getMilvusCollection)
-                .orElseThrow(() -> new IllegalArgumentException("知识库不存在: " + kbId));
+                .orElseThrow(() -> new BusinessException(404, "知识库不存在: " + kbId));
     }
 
     private String hashContent(String content) {

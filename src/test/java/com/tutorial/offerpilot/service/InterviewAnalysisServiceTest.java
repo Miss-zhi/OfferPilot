@@ -7,6 +7,7 @@ import com.tutorial.offerpilot.entity.AnalysisReport;
 import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.InterviewSession;
 import com.tutorial.offerpilot.entity.KnowledgeMastery;
+import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -90,7 +91,7 @@ class InterviewAnalysisServiceTest {
         @DisplayName("不存在 → 抛异常")
         void getReportByReportId_notFound_shouldThrow() {
             when(reportRepo.findByReportId("rpt-xxx")).thenReturn(Optional.empty());
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(BusinessException.class,
                     () -> analysisService.getReportByReportId("rpt-xxx"));
         }
     }
@@ -178,7 +179,7 @@ class InterviewAnalysisServiceTest {
             when(questionRepo.findBySessionIdOrderBySortOrder(SESSION_ID))
                     .thenReturn(Collections.emptyList());
 
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(BusinessException.class,
                     () -> analysisService.generateReport(SESSION_ID));
         }
 
@@ -187,7 +188,7 @@ class InterviewAnalysisServiceTest {
         void generateReport_sessionNotFound_shouldThrow() {
             when(sessionRepo.findBySessionId(SESSION_ID)).thenReturn(Optional.empty());
 
-            assertThrows(IllegalArgumentException.class,
+            assertThrows(BusinessException.class,
                     () -> analysisService.generateReport(SESSION_ID));
         }
     }

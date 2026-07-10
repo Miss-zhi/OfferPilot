@@ -36,8 +36,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("KnowledgeBaseAdminController Web 层测试")
-class KnowledgeBaseAdminControllerTest {
+@DisplayName("KnowledgeBaseController Web 层测试")
+class KnowledgeBaseControllerTest {
 
     private MockMvc mockMvc;
 
@@ -45,9 +45,9 @@ class KnowledgeBaseAdminControllerTest {
     private KnowledgeBaseService kbService;
 
     @InjectMocks
-    private KnowledgeBaseAdminController controller;
+    private KnowledgeBaseController controller;
 
-    private static final String USER_ID = "adminuser";
+    private static final String USER_ID = "testuser";
 
     @BeforeEach
     void setUp() {
@@ -58,7 +58,7 @@ class KnowledgeBaseAdminControllerTest {
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
                 .build();
 
-        User user = new User(USER_ID, "", List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
+        User user = new User(USER_ID, "", List.of(new SimpleGrantedAuthority("ROLE_USER")));
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities()));
     }
@@ -81,10 +81,10 @@ class KnowledgeBaseAdminControllerTest {
         return kb;
     }
 
-    // ==================== POST /api/v1/admin/kb ====================
+    // ==================== POST /api/v1/kb ====================
 
     @Nested
-    @DisplayName("POST /api/v1/admin/kb")
+    @DisplayName("POST /api/v1/kb")
     class CreateKbTests {
 
         @Test
@@ -94,7 +94,7 @@ class KnowledgeBaseAdminControllerTest {
             when(kbService.createKnowledgeBase(any(CreateKbRequest.class), eq(USER_ID), any(UserDetails.class)))
                     .thenReturn(kb);
 
-            mockMvc.perform(post("/api/v1/admin/kb")
+            mockMvc.perform(post("/api/v1/kb")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"name": "Java面试题库", "description": "涵盖Java基础与进阶", "category": "tech"}"""))
@@ -114,7 +114,7 @@ class KnowledgeBaseAdminControllerTest {
         @Test
         @DisplayName("名称为空 → 400 参数校验失败")
         void createKb_blankName_shouldReturn400() throws Exception {
-            mockMvc.perform(post("/api/v1/admin/kb")
+            mockMvc.perform(post("/api/v1/kb")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"name": "", "description": "desc"}"""))
@@ -133,7 +133,7 @@ class KnowledgeBaseAdminControllerTest {
             when(kbService.createKnowledgeBase(any(CreateKbRequest.class), eq(USER_ID), any(UserDetails.class)))
                     .thenReturn(kb);
 
-            mockMvc.perform(post("/api/v1/admin/kb")
+            mockMvc.perform(post("/api/v1/kb")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"name": "最小知识库"}"""))
@@ -148,7 +148,7 @@ class KnowledgeBaseAdminControllerTest {
             when(kbService.createKnowledgeBase(any(CreateKbRequest.class), eq(USER_ID), any(UserDetails.class)))
                     .thenThrow(new BusinessException(409, "知识库名称已存在"));
 
-            mockMvc.perform(post("/api/v1/admin/kb")
+            mockMvc.perform(post("/api/v1/kb")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"name": "重复名称"}"""))
@@ -158,10 +158,10 @@ class KnowledgeBaseAdminControllerTest {
         }
     }
 
-    // ==================== GET /api/v1/admin/kb ====================
+    // ==================== GET /api/v1/kb ====================
 
     @Nested
-    @DisplayName("GET /api/v1/admin/kb")
+    @DisplayName("GET /api/v1/kb")
     class ListKbTests {
 
         @Test
@@ -173,7 +173,7 @@ class KnowledgeBaseAdminControllerTest {
             when(kbService.listKnowledgeBases(eq(USER_ID), any(UserDetails.class)))
                     .thenReturn(List.of(kb1, kb2));
 
-            mockMvc.perform(get("/api/v1/admin/kb"))
+            mockMvc.perform(get("/api/v1/kb"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.code").value(200))
                     .andExpect(jsonPath("$.data.length()").value(2))
@@ -190,7 +190,7 @@ class KnowledgeBaseAdminControllerTest {
         void listKb_empty_shouldReturnEmptyList() throws Exception {
             when(kbService.listKnowledgeBases(eq(USER_ID), any(UserDetails.class))).thenReturn(List.of());
 
-            mockMvc.perform(get("/api/v1/admin/kb"))
+            mockMvc.perform(get("/api/v1/kb"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data").isArray())
                     .andExpect(jsonPath("$.data").isEmpty());
@@ -202,52 +202,52 @@ class KnowledgeBaseAdminControllerTest {
             when(kbService.listKnowledgeBases(eq(USER_ID), any(UserDetails.class)))
                     .thenThrow(new RuntimeException("DB error"));
 
-            mockMvc.perform(get("/api/v1/admin/kb"))
+            mockMvc.perform(get("/api/v1/kb"))
                     .andExpect(status().isInternalServerError())
                     .andExpect(jsonPath("$.code").value(500));
         }
     }
 
-    // ==================== DELETE /api/v1/admin/kb/{kbId} ====================
+    // ==================== DELETE /api/v1/kb/{kbId} ====================
 
     @Nested
-    @DisplayName("DELETE /api/v1/admin/kb/{kbId}")
+    @DisplayName("DELETE /api/v1/kb/{kbId}")
     class DeleteKbTests {
 
         @Test
         @DisplayName("正常删除 → 204 No Content")
         void deleteKb_shouldReturn204() throws Exception {
-            doNothing().when(kbService).deleteKnowledgeBase("kb-001");
+            doNothing().when(kbService).deleteKnowledgeBase(eq("kb-001"), eq(USER_ID), any(UserDetails.class));
 
-            mockMvc.perform(delete("/api/v1/admin/kb/kb-001"))
+            mockMvc.perform(delete("/api/v1/kb/kb-001"))
                     .andExpect(status().isNoContent())
                     .andExpect(content().string(""));
 
-            verify(kbService).deleteKnowledgeBase("kb-001");
+            verify(kbService).deleteKnowledgeBase(eq("kb-001"), eq(USER_ID), any(UserDetails.class));
         }
 
         @Test
         @DisplayName("知识库不存在 → 404")
         void deleteKb_notFound_shouldReturn404() throws Exception {
             doThrow(new BusinessException(404, "知识库不存在"))
-                    .when(kbService).deleteKnowledgeBase("kb-999");
+                    .when(kbService).deleteKnowledgeBase(eq("kb-999"), eq(USER_ID), any(UserDetails.class));
 
-            mockMvc.perform(delete("/api/v1/admin/kb/kb-999"))
+            mockMvc.perform(delete("/api/v1/kb/kb-999"))
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value(404))
                     .andExpect(jsonPath("$.message").value("知识库不存在"));
         }
 
         @Test
-        @DisplayName("知识库非空 → 409 冲突")
-        void deleteKb_notEmpty_shouldReturn409() throws Exception {
-            doThrow(new BusinessException(409, "知识库非空，无法删除"))
-                    .when(kbService).deleteKnowledgeBase("kb-has-docs");
+        @DisplayName("无权删除 → 403 Forbidden")
+        void deleteKb_forbidden_shouldReturn403() throws Exception {
+            doThrow(new BusinessException(403, "无权删除此知识库"))
+                    .when(kbService).deleteKnowledgeBase(eq("kb-others"), eq(USER_ID), any(UserDetails.class));
 
-            mockMvc.perform(delete("/api/v1/admin/kb/kb-has-docs"))
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.code").value(409))
-                    .andExpect(jsonPath("$.message").value("知识库非空，无法删除"));
+            mockMvc.perform(delete("/api/v1/kb/kb-others"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value(403))
+                    .andExpect(jsonPath("$.message").value("无权删除此知识库"));
         }
     }
 }

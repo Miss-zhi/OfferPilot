@@ -3,6 +3,7 @@
  */
 package com.tutorial.offerpilot.service.ingestion;
 
+import com.tutorial.offerpilot.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -31,7 +32,7 @@ public class DocumentParser {
             case "txt" -> java.nio.file.Files.readString(java.nio.file.Path.of(filePath));
             case "pdf" -> parsePdf(filePath);
             case "docx" -> parseDocx(filePath);
-            default -> throw new IllegalArgumentException("不支持的文件格式: " + fileType);
+            default -> throw new BusinessException(400, "不支持的文件格式: " + fileType);
         };
     }
 
