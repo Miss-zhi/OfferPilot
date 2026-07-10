@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: frontend_webapp/app_root
+title: 前端应用入口与基础设施层
+scope:
+    - web/src/app/
+    - web/src/infra/
+    - web/src/vite-env.d.ts
+source_files: []
+depends_on: []
+related_to: []

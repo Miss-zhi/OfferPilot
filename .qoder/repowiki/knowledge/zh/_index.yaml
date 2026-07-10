@@ -3,11 +3,25 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-10T10:28:07Z"
+exported_at: "2026-07-10T13:34:23Z"
 modules:
+    "":
+        dir_name: OfferPilot 多子模块根装配层
+        title: OfferPilot 多子模块根装配层
+        scope:
+            - pom.xml
+            - docker-compose.yml
+            - .env
+        source_files: []
+        children:
+            - backend_api
+            - frontend_webapp
+            - project_docs
+        depends_on: []
+        related_to: []
     backend_api:
-        dir_name: backend_api
-        title: backend_api
+        dir_name: OfferPilot 后端单体应用
+        title: OfferPilot 后端单体应用
         scope:
             - src/main/java/com/tutorial/offerpilot/
             - src/main/resources/
@@ -16,6 +30,7 @@ modules:
             - backend_api/agent_framework
             - backend_api/interview_analysis
             - backend_api/knowledge_base
+            - backend_api/model_config_management
             - backend_api/progress_tracking
             - backend_api/resume_evaluation
             - backend_api/salary_negotiation
@@ -23,8 +38,8 @@ modules:
         depends_on: []
         related_to: []
     backend_api/agent_framework:
-        dir_name: AgentScope Agent 框架层（工具注册、中间件与工厂）
-        title: AgentScope Agent 框架层（工具注册、中间件与工厂）
+        dir_name: AgentScope 智能体工厂与工具集
+        title: AgentScope 智能体工厂与工具集
         scope:
             - src/main/java/com/tutorial/offerpilot/agent/
         source_files: []
@@ -55,9 +70,29 @@ modules:
         children: []
         depends_on: []
         related_to: []
+    backend_api/model_config_management:
+        dir_name: LLM Provider 模型配置与用户偏好管理
+        title: LLM Provider 模型配置与用户偏好管理
+        scope:
+            - src/main/java/com/tutorial/offerpilot/controller/ModelConfigController.java
+            - src/main/java/com/tutorial/offerpilot/controller/UserModelController.java
+            - src/main/java/com/tutorial/offerpilot/service/ModelConfigService.java
+            - src/main/java/com/tutorial/offerpilot/service/UserModelService.java
+            - src/main/java/com/tutorial/offerpilot/service/ApiKeyEncryption.java
+            - src/main/java/com/tutorial/offerpilot/service/ModelListFetcher.java
+            - src/main/java/com/tutorial/offerpilot/entity/ModelConfig.java
+            - src/main/java/com/tutorial/offerpilot/entity/ModelName.java
+            - src/main/java/com/tutorial/offerpilot/enums/ProviderPreset.java
+            - src/main/java/com/tutorial/offerpilot/dto/model/
+            - src/main/java/com/tutorial/offerpilot/repository/ModelConfigRepository.java
+            - src/main/java/com/tutorial/offerpilot/repository/ModelNameRepository.java
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
     backend_api/progress_tracking:
-        dir_name: progress_tracking
-        title: progress_tracking
+        dir_name: 学习进度追踪与用户记忆服务
+        title: 学习进度追踪与用户记忆服务
         scope:
             - src/main/java/com/tutorial/offerpilot/controller/ProgressController.java
             - src/main/java/com/tutorial/offerpilot/service/UserMemoryService.java
@@ -67,8 +102,8 @@ modules:
         depends_on: []
         related_to: []
     backend_api/resume_evaluation:
-        dir_name: resume_evaluation
-        title: resume_evaluation
+        dir_name: 简历解析与评估服务
+        title: 简历解析与评估服务
         scope:
             - src/main/java/com/tutorial/offerpilot/service/ResumeService.java
             - src/main/java/com/tutorial/offerpilot/dto/tool/ResumeParseResult.java
@@ -78,8 +113,8 @@ modules:
         depends_on: []
         related_to: []
     backend_api/salary_negotiation:
-        dir_name: salary_negotiation
-        title: salary_negotiation
+        dir_name: 薪资查询与 Offer 谈判辅助
+        title: 薪资查询与 Offer 谈判辅助
         scope:
             - src/main/java/com/tutorial/offerpilot/controller/SalaryController.java
             - src/main/java/com/tutorial/offerpilot/service/SalaryService.java
@@ -89,8 +124,8 @@ modules:
         depends_on: []
         related_to: []
     backend_api/shared_infrastructure:
-        dir_name: 共享基础设施（安全、配置、异常与通用模型）
-        title: 共享基础设施（安全、配置、异常与通用模型）
+        dir_name: 共享基础设施（安全认证、全局异常与通用配置）
+        title: 共享基础设施（安全认证、全局异常与通用配置）
         scope:
             - src/main/java/com/tutorial/offerpilot/config/
             - src/main/java/com/tutorial/offerpilot/security/
@@ -101,8 +136,8 @@ modules:
         depends_on: []
         related_to: []
     frontend_webapp:
-        dir_name: frontend_webapp
-        title: frontend_webapp
+        dir_name: OfferPilot 前端 Web 应用
+        title: OfferPilot 前端 Web 应用
         scope:
             - web/src/
             - web/package.json
@@ -113,12 +148,14 @@ modules:
             - frontend_webapp/auth_module
             - frontend_webapp/chat_feature
             - frontend_webapp/knowledge_admin
+            - frontend_webapp/model_admin_page
             - frontend_webapp/resume_feature
+            - frontend_webapp/user_settings_page
         depends_on: []
         related_to: []
     frontend_webapp/app_root:
-        dir_name: app_root
-        title: app_root
+        dir_name: 前端应用入口与基础设施层
+        title: 前端应用入口与基础设施层
         scope:
             - web/src/app/
             - web/src/infra/
@@ -128,8 +165,8 @@ modules:
         depends_on: []
         related_to: []
     frontend_webapp/auth_module:
-        dir_name: auth_module
-        title: auth_module
+        dir_name: 用户认证与登录注册前端模块
+        title: 用户认证与登录注册前端模块
         scope:
             - web/src/ui/pages/login/
             - web/src/store/auth-store.ts
@@ -139,8 +176,8 @@ modules:
         depends_on: []
         related_to: []
     frontend_webapp/chat_feature:
-        dir_name: chat_feature
-        title: chat_feature
+        dir_name: 求职对话聊天前端模块
+        title: 求职对话聊天前端模块
         scope:
             - web/src/ui/pages/chat/
             - web/src/store/chat-store.ts
@@ -150,8 +187,8 @@ modules:
         depends_on: []
         related_to: []
     frontend_webapp/knowledge_admin:
-        dir_name: knowledge_admin
-        title: knowledge_admin
+        dir_name: 知识库管理后台页面（文档_知识库_检索测试）
+        title: 知识库管理后台页面（文档/知识库/检索测试）
         scope:
             - web/src/ui/pages/admin/documents/
             - web/src/ui/pages/admin/knowledge/
@@ -160,9 +197,19 @@ modules:
         children: []
         depends_on: []
         related_to: []
+    frontend_webapp/model_admin_page:
+        dir_name: 模型配置管理页面（Admin & User）
+        title: 模型配置管理页面（Admin & User）
+        scope:
+            - web/src/ui/pages/admin/models/ModelConfigPage.tsx
+            - web/src/service/modelConfigService.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
     frontend_webapp/resume_feature:
-        dir_name: resume_feature
-        title: resume_feature
+        dir_name: 简历诊断与知识库状态管理
+        title: 简历诊断与知识库状态管理
         scope:
             - web/src/ui/pages/resume/
             - web/src/service/resumeService.ts
@@ -171,9 +218,18 @@ modules:
         children: []
         depends_on: []
         related_to: []
+    frontend_webapp/user_settings_page:
+        dir_name: 用户模型偏好设置页面
+        title: 用户模型偏好设置页面
+        scope:
+            - web/src/ui/pages/settings/SettingsPage.tsx
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
     project_docs:
-        dir_name: project_docs
-        title: project_docs
+        dir_name: 项目文档与 Agent 提示词模板库
+        title: 项目文档与 Agent 提示词模板库
         scope:
             - Documents/
         source_files: []

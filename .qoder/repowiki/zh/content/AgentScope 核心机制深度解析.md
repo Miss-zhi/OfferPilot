@@ -3,6 +3,9 @@
 <cite>
 **本文引用的文件**   
 - [AgentFactory.java](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java)
+- [UserModelService.java](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java)
+- [AgentScopeProperties.java](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java)
+- [AppUser.java](file://src/main/java/com/tutorial/offerpilot/entity/AppUser.java)
 - [QuestionSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/QuestionSearchTool.java)
 - [AnswerAnalyzeTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/AnswerAnalyzeTool.java)
 - [MockInterviewTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/MockInterviewTool.java)
@@ -10,20 +13,28 @@
 - [04-实现与编码规范.md](file://Documents/04-实现与编码规范.md)
 </cite>
 
+## 更新摘要
+**变更内容**   
+- 新增智能模型解析逻辑，支持用户私有模型 > 用户默认模型 > 全局默认模型 > application.yml 回退的四级优先级
+- 引入 ModelCreationContext 动态模型实例化机制，通过 Agentscope ModelRegistry 实现运行时模型配置
+- 增强用户模型管理功能，支持私有模型配置和动态切换
+- 完善模型配置的安全处理，包括 API Key 加密解密和动态 baseUrl 支持
+
 ## 目录
 - ReActAgent 推理循环
 - @Tool 工具定义与动态激活
 - 多 Agent 协作范式
 - Msg 消息流转路径
+- 智能模型解析与动态实例化
 
 ## ReActAgent 推理循环
 - 推理循环要点
   - Reasoning：主 Agent 基于系统提示词、记忆注入与计划模式进行思考，决定下一步动作（调用工具或委派子 Agent）。
-  - Action：通过 Toolkit 执行本地 @Tool 或通过 MCP 注册的外部工具；在“1 主 + 7 子”模式下，主 Agent 仅调度 spawn/resume_subagent，业务工具由子 Agent 白名单持有。
+  - Action：通过 Toolkit 执行本地 @Tool 或通过 MCP 注册的外部工具；在"1 主 + 7 子"模式下，主 Agent 仅调度 spawn/resume_subagent，业务工具由子 Agent 白名单持有。
   - Observation：工具返回结构化 POJO（dto/tool/*），框架自动序列化为 JSON 供 LLM 消费；LLM 据此生成自然语言输出或继续下一轮推理。
 - HarnessAgent.builder() 关键配置项
-  - sysPrompt：定义角色、行为约束与“指导型工具”解读规则（如 generate_next_question/analyze_answer/evaluate_resume 只返回指导文本，需由 LLM 自行生成最终内容）。
-  - model：模型标识符（provider:modelName），从配置读取。
+  - sysPrompt：定义角色、行为约束与"指导型工具"解读规则（如 generate_next_question/analyze_answer/evaluate_resume 只返回指导文本，需由 LLM 自行生成最终内容）。
+  - model：模型标识符（provider:modelName），从配置读取，支持动态解析。
   - toolkit：注册所有本地 @Tool 与 registerMetaTool；子 Agent 通过 SubagentDeclaration.tools() 白名单从主 Toolkit 获取过滤副本。
   - subagent：声明 7 个子 Agent（resume_coach、tech_evaluator、expression_evaluator、mock_interviewer、company_researcher、study_planner、salary_advisor）。
   - middleware：TokenMonitorMiddleware、CostControlMiddleware、MemoryInjectMiddleware（每次推理前 onSystemPrompt 钩子加载用户长期记忆）。
@@ -96,7 +107,7 @@ Main --> SA["薪资谈判<br/>salary_advisor"]
   - 主 Agent 仅使用 spawn/resume_subagent 将任务委派给子 Agent；子 Agent 各自持有独立的过滤 Toolkit（仅含其白名单工具）。
   - 子 Agent 可并发执行（例如 tech_evaluator 与 expression_evaluator 并行评估同一回答）。
 - 工具白名单与过滤副本
-  - 主 Toolkit 作为“工具池”，子 Agent 通过 SubagentDeclaration.tools() 声明所需工具名列表；spawn 时框架构建独立副本，确保工具隔离与最小权限。
+  - 主 Toolkit 作为"工具池"，子 Agent 通过 SubagentDeclaration.tools() 声明所需工具名列表；spawn 时框架构建独立副本，确保工具隔离与最小权限。
 - 7 个子 Agent 的 SubagentDeclaration 摘要
   - resume_coach：parse_resume、evaluate_resume、search_questions
   - tech_evaluator：search_answers、analyze_answer、search_questions
@@ -141,3 +152,64 @@ C-->>U : "SSE事件或JSON响应"
 - [04-实现与编码规范.md:725-794](file://Documents/04-实现与编码规范.md#L725-L794)
 - [04-实现与编码规范.md:467-603](file://Documents/04-实现与编码规范.md#L467-L603)
 - [02-系统架构设计说明书.md:800-810](file://Documents/02-系统架构设计说明书.md#L800-L810)
+
+## 智能模型解析与动态实例化
+
+### 四级模型优先级解析机制
+
+**更新** 新增了智能模型解析逻辑，实现了用户私有模型 > 用户默认模型 > 全局默认模型 > application.yml 回退的四级优先级体系。
+
+#### 模型解析流程
+```mermaid
+flowchart TD
+Start(["开始解析模型"]) --> CheckPrivate["检查用户私有模型<br/>userModelService.getUserModelConfig()"]
+CheckPrivate --> PrivateExists{"私有模型存在？"}
+PrivateExists --> |是| UsePrivate["使用私有模型配置"]
+PrivateExists --> |否| CheckGlobal["查询全局默认模型<br/>modelConfigService.getGlobalDefault()"]
+CheckGlobal --> GlobalExists{"全局默认存在？"}
+GlobalExists --> |是| UseGlobal["使用全局默认配置"]
+GlobalExists --> |否| UseFallback["使用 application.yml 兜底配置"]
+UsePrivate --> BuildContext["构建 ModelCreationContext"]
+UseGlobal --> BuildContext
+BuildContext --> ResolveModel["ModelRegistry.resolve(modelId, context)"]
+ResolveModel --> Success{"解析成功？"}
+Success --> |是| ReturnModel["返回 Model 实例"]
+Success --> |否| UseFallback
+UseFallback --> FallbackResolve["ModelRegistry.resolve(fallbackModelId)"]
+FallbackResolve --> ReturnModel
+```
+
+#### 核心实现细节
+
+**ModelCreationContext 动态实例化**
+- 通过 `ModelCreationContext.builder()` 构建上下文，包含 apiKey、baseUrl 等运行时配置
+- 支持动态 baseUrl 配置，满足不同提供商的 API 地址需求
+- 集成 ApiKeyEncryption 实现 API Key 的安全解密
+
+**用户模型管理**
+- AppUser 实体新增 `privateModelConfigId` 和 `defaultModelConfigId` 字段
+- UserModelService 提供完整的用户模型配置管理接口
+- 支持私有模型的创建、设置和自动设为默认
+
+**安全处理机制**
+- API Key 采用加密存储，使用时动态解密
+- 支持不同提供商的认证头类型和 API 格式
+- 模型名称验证确保配置的有效性
+
+#### 用户模型配置结构
+- **私有模型**：用户专属配置，优先级最高，支持自定义 provider 和 baseUrl
+- **用户默认模型**：用户选择的默认配置，适用于无私有模型的场景
+- **全局默认模型**：管理员配置的全局默认值，适用于无用户配置的场景
+- **application.yml 兜底**：应用级默认配置，确保系统始终可用
+
+#### 动态模型切换优势
+- **实时生效**：模型配置变更后无需重启应用
+- **细粒度控制**：支持用户级别的模型个性化配置
+- **高可用性**：多级回退机制确保系统稳定性
+- **安全性**：API Key 加密存储，防止敏感信息泄露
+
+**章节来源**
+- [AgentFactory.java:262-298](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L262-L298)
+- [UserModelService.java:150-168](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java#L150-L168)
+- [AppUser.java:47-53](file://src/main/java/com/tutorial/offerpilot/entity/AppUser.java#L47-L53)
+- [AgentScopeProperties.java:19-26](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L19-L26)

@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: backend_api/salary_negotiation
+title: 薪资查询与 Offer 谈判辅助
+scope:
+    - src/main/java/com/tutorial/offerpilot/controller/SalaryController.java
+    - src/main/java/com/tutorial/offerpilot/service/SalaryService.java
+    - src/main/java/com/tutorial/offerpilot/dto/salary/
+source_files: []
+depends_on: []
+related_to: []
