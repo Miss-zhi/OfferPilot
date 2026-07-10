@@ -19,4 +19,4 @@ uploads/
 workspace/uploads/
 
 # Environment
-.env.production
+.env

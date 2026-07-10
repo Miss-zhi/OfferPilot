@@ -15,6 +15,7 @@ public class AgentScopeProperties {
     private ModelConfig model = new ModelConfig();
     private AgentConfig agent = new AgentConfig();
     private KnowledgeConfig knowledge = new KnowledgeConfig();
+    private EmbeddingConfig embedding = new EmbeddingConfig();
 
     @Data
     public static class ModelConfig {
@@ -46,5 +47,20 @@ public class AgentScopeProperties {
         private int chunkOverlap = 50;
         private int topK = 5;
         private boolean autoInit = true;
+    }
+
+    /**
+     * Embedding 独立配置 — 与 LLM Model 解耦。
+     * 当 LLM Provider 切换为 DeepSeek 等不支持 Embedding 的服务商时，
+     * 可通过此配置单独指定 Embedding Provider（默认 DashScope），避免共用 api-key。
+     */
+    @Data
+    public static class EmbeddingConfig {
+        /** Embedding Provider，默认 dashscope */
+        private String provider = "dashscope";
+        /** Embedding API Key，未配置时回退使用 agentscope.model.api-key */
+        private String apiKey;
+        /** Embedding API Base URL */
+        private String baseUrl = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding";
     }
 }

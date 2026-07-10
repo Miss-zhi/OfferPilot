@@ -18,8 +18,9 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * DashScope Embedding 服务。
- * 调用阿里云 DashScope text-embedding-v3 API，将文本转为 1024 维浮点向量。
+ * Embedding 服务。
+ * 默认调用 DashScope text-embedding-v3 API，支持通过 agentscope.embedding.* 独立配置。
+ * 当未配置 embedding.api-key 时自动回退使用 agentscope.model.api-key。
  */
 @Slf4j
 @Service
@@ -27,22 +28,33 @@ public class EmbeddingService {
 
     private final String apiKey;
     private final String modelName;
+    private final String embeddingUrl;
     private final OkHttpClient httpClient;
     private final ObjectMapper objectMapper;
 
-    private static final String EMBEDDING_URL =
-            "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding";
     private static final int MAX_BATCH_SIZE = 25;
 
     public EmbeddingService(AgentScopeProperties properties) {
-        this.apiKey = properties.getModel().getApiKey();
+        AgentScopeProperties.EmbeddingConfig embeddingConfig = properties.getEmbedding();
+
+        // Embedding API Key 优先级: embedding.api-key > model.api-key（回退兼容）
+        String embeddingApiKey = embeddingConfig.getApiKey();
+        if (embeddingApiKey != null && !embeddingApiKey.isBlank()) {
+            this.apiKey = embeddingApiKey;
+        } else {
+            this.apiKey = properties.getModel().getApiKey();
+            log.info("EmbeddingService using fallback api-key from agentscope.model.api-key");
+        }
+
         this.modelName = properties.getKnowledge().getEmbeddingModel();
+        this.embeddingUrl = embeddingConfig.getBaseUrl();
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
                 .build();
         this.objectMapper = new ObjectMapper();
-        log.info("EmbeddingService initialized: model={}", modelName);
+        log.info("EmbeddingService initialized: provider={}, model={}, url={}",
+                embeddingConfig.getProvider(), modelName, embeddingUrl);
     }
 
     /**
@@ -82,7 +94,7 @@ public class EmbeddingService {
             log.debug("Embedding request: texts={}, bodySize={}", texts.size(), requestBody.length());
 
             Request request = new Request.Builder()
-                    .url(EMBEDDING_URL)
+                    .url(embeddingUrl)
                     .addHeader("Authorization", "Bearer " + apiKey)
                     .addHeader("Content-Type", "application/json")
                     .post(RequestBody.create(requestBody, MediaType.parse("application/json")))

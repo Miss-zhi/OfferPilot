@@ -54,6 +54,14 @@ agentscope:
     top-k: 5
     auto-init: true
 
+  # Embedding 独立配置 — 与 LLM Model 解耦
+  # 当 LLM 切换到 DeepSeek 等不支持 Embedding 的 Provider 时，
+  # 只需配置 EMBEDDING_API_KEY 指向 DashScope/OpenAI 等，无需改动模型 Key
+  embedding:
+    api-key: ${EMBEDDING_API_KEY:}
+    provider: dashscope
+    base-url: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
+
 # App config
 app:
   jwt:
