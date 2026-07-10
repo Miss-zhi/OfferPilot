@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: backend_api/salary_negotiation
+title: salary_negotiation
+scope:
+    - src/main/java/com/tutorial/offerpilot/controller/SalaryController.java
+    - src/main/java/com/tutorial/offerpilot/service/SalaryService.java
+    - src/main/java/com/tutorial/offerpilot/dto/salary/
+source_files: []
+depends_on: []
+related_to: []

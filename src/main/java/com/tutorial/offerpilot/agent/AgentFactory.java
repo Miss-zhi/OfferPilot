@@ -10,7 +10,14 @@ import com.tutorial.offerpilot.agent.middleware.CostControlMiddleware;
 import com.tutorial.offerpilot.agent.middleware.TokenMonitorMiddleware;
 import com.tutorial.offerpilot.agent.tool.*;
 import com.tutorial.offerpilot.config.AgentScopeProperties;
+import com.tutorial.offerpilot.entity.ModelConfig;
+import com.tutorial.offerpilot.service.ApiKeyEncryption;
+import com.tutorial.offerpilot.service.ModelConfigService;
 import com.tutorial.offerpilot.service.UserMemoryService;
+import com.tutorial.offerpilot.service.UserModelService;
+import io.agentscope.core.model.Model;
+import io.agentscope.core.model.ModelCreationContext;
+import io.agentscope.core.model.ModelRegistry;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +38,9 @@ public class AgentFactory {
 
     private final AgentScopeProperties properties;
     private final UserMemoryService userMemoryService;
+    private final UserModelService userModelService;
+    private final ModelConfigService modelConfigService;
+    private final ApiKeyEncryption apiKeyEncryption;
 
     /** 工具实例 — 所有 11 个工具类 */
     private final AnswerAnalyzeTool answerAnalyzeTool;
@@ -55,6 +65,9 @@ public class AgentFactory {
 
     public AgentFactory(AgentScopeProperties properties,
                         UserMemoryService userMemoryService,
+                        UserModelService userModelService,
+                        ModelConfigService modelConfigService,
+                        ApiKeyEncryption apiKeyEncryption,
                         AnswerAnalyzeTool answerAnalyzeTool,
                         AnswerSearchTool answerSearchTool,
                         AudioTranscribeTool audioTranscribeTool,
@@ -68,6 +81,9 @@ public class AgentFactory {
                         SalaryTool salaryTool) {
         this.properties = properties;
         this.userMemoryService = userMemoryService;
+        this.userModelService = userModelService;
+        this.modelConfigService = modelConfigService;
+        this.apiKeyEncryption = apiKeyEncryption;
         this.answerAnalyzeTool = answerAnalyzeTool;
         this.answerSearchTool = answerSearchTool;
         this.audioTranscribeTool = audioTranscribeTool;
@@ -94,9 +110,8 @@ public class AgentFactory {
         // 1. 构建 Toolkit — 4 个分组 + 注册所有工具
         Toolkit toolkit = buildToolkit();
 
-        // 2. 构建模型标识符
-        String modelId = properties.getModel().getProvider() + ":"
-                + properties.getModel().getModelName();
+        // 2. 按优先级选择模型: 用户私有 > 用户默认 > 全局默认 > application.yml 兜底
+        Model model = resolveModel(userId);
 
         // 3. 系统提示词
         String sysPrompt = buildSystemPrompt();
@@ -109,7 +124,7 @@ public class AgentFactory {
         HarnessAgent agent = HarnessAgent.builder()
                 .name("offerpilot_" + userId)
                 .sysPrompt(sysPrompt)
-                .model(modelId)
+                .model(model)
                 .toolkit(toolkit)
                 .middleware(tokenMonitor)
                 .middleware(costControl)
@@ -117,7 +132,7 @@ public class AgentFactory {
                 .enableTaskList()
                 .build();
 
-        log.info("HarnessAgent built: name={}, model={}", agent.getName(), modelId);
+        log.info("HarnessAgent built: name={}, model={}", agent.getName(), model);
         return agent;
     }
 
@@ -242,6 +257,44 @@ public class AgentFactory {
                 - For all guidance-based tools, never echo the raw guidance to the user.
                   Always transform it into natural, polished output.
                 """.stripIndent();
+    }
+
+    /**
+     * 按优先级解析用户模型：用户私有 > 用户默认 > 全局默认 > application.yml 兜底。
+     */
+    private Model resolveModel(String userId) {
+        // 1. 查询用户偏好（私有模型优先）
+        ModelConfig modelConfig = userModelService.getUserModelConfig(userId);
+
+        // 2. 全局默认
+        if (modelConfig == null) {
+            modelConfig = modelConfigService.getGlobalDefault();
+        }
+
+        // 3. 若通过数据库配置解析到模型，构建 Model 实例
+        if (modelConfig != null) {
+            String provider = modelConfig.getProvider();
+            String modelName = modelConfig.getDefaultModelName();
+            String apiKey = apiKeyEncryption.decrypt(modelConfig.getApiKey());
+            String modelId = provider + ":" + modelName;
+
+            ModelCreationContext context = ModelCreationContext.builder()
+                    .apiKey(apiKey)
+                    .baseUrl(modelConfig.getBaseUrl())
+                    .build();
+
+            try {
+                return ModelRegistry.resolve(modelId, context);
+            } catch (Exception e) {
+                log.warn("Failed to resolve model {} with context, falling back to yml config", modelId, e);
+            }
+        }
+
+        // 4. 最终兜底：使用 application.yml 中的 agentscope.model.* 配置
+        String fallbackModelId = properties.getModel().getProvider() + ":"
+                + properties.getModel().getModelName();
+        log.info("Using fallback model from application.yml: {}", fallbackModelId);
+        return ModelRegistry.resolve(fallbackModelId);
     }
 
     /**

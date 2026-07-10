@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: frontend_webapp/knowledge_admin
+title: knowledge_admin
+scope:
+    - web/src/ui/pages/admin/documents/
+    - web/src/ui/pages/admin/knowledge/
+    - web/src/ui/pages/admin/search/
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,251 @@
+version: 1
+
+# ============================================================
+# OfferPilot Repo Wiki & Knowledge Card 构建计划
+# 面向后端开发新人的技术入门与架构理解
+# ============================================================
+
+scope:
+  include:
+    - "src/**"
+    - "Documents/**"
+    - "web/**"
+    - "workspace/**"
+    - "pom.xml"
+    - "docker-compose.yml"
+    - ".env"
+  exclude:
+    - "target/**"
+    - "logs/**"
+    - "node_modules/**"
+    - "**/*.log.gz"
+    - "**/*.class"
+
+repowiki:
+  template: architecture
+
+  notes:
+    - text: "OfferPilot 是基于 Spring Boot 3.2.5 + AgentScope Java v2 (2.0.0-RC5) 构建的智能求职辅导 AI 平台。核心技术栈：Spring MVC (Servlet)、JPA + Hibernate、Milvus 2.4.6 向量数据库、Redis 7 缓存/限流、DashScope LLM + Embedding、Spring Security + JWT (jjwt 0.12.5) 无状态认证、Maven 构建。包名 com.tutorial.offerpilot，单模块项目。"
+      author: "system"
+    - text: "AgentScope 核心概念：ReActAgent 是 AgentScope v2 的主 Agent 类型，通过 HarnessAgent.builder() 构建。推理循环为 Reasoning（LLM 思考）→ Action（工具调用）→ Observation（结果反馈）的循环。@Tool 注解标记工具方法，Toolkit.registerTool() 注册。SubagentsMiddleware 管理子 Agent 的 spawn/resume，子 Agent 从主 Agent Toolkit 中按 tools() 白名单获取过滤副本。"
+      author: "system"
+    - text: "工具与 LLM 职责分离是核心设计原则：@Tool 方法返回结构化 POJO（定义在 dto/tool/ 包），提供数据查询、计算、指导文本，不硬编码评分规则或评语模板。所有自然语言生成（评分、评语、建议、面试题文本）由 LLM 在对话中动态完成。示例：analyze_answer 返回 AnswerAnalysisResult（含 guidance 指导文本），LLM 据此生成评分和评语。"
+      author: "system"
+    - text: "多 Agent 协作范式：1 主 Agent (offerPilotCoach) + 7 子 Agent (resume_coach, tech_evaluator, expression_evaluator, mock_interviewer, company_researcher, study_planner, salary_advisor)。主 Agent 只做调度（spawn/resume_subagent），严禁直接调用业务工具。子 Agent 各负责 2-3 个工具，并发执行（如 tech_evaluator 和 expression_evaluator 可并行评估同一回答）。"
+      author: "system"
+    - text: "配置类扫描路径：config/ 包下含 AgentScopeProperties (@ConfigurationProperties prefix=agentscope)、ModelConfig (LLM Model Bean)、SecurityConfig (@EnableWebSecurity, Servlet 栈)、MilvusConfig (MilvusServiceClient Bean)、MilvusProperties (@ConfigurationProperties prefix=app.milvus)、RedisConfig、AsyncConfig (@EnableAsync + ingestionExecutor 线程池)、WebConfig (CORS)。API Key 通过环境变量 ${DASHSCOPE_API_KEY} 注入，JWT Secret 通过 ${JWT_SECRET} 注入。"
+      author: "system"
+    - text: "记忆体系两层架构：短期会话记忆由 RedisAgentStateStore 管理（TTL 30 分钟，key 格式 session:{sessionId}:messages），长期用户记忆存储在 MySQL op_user_memory 表（按 userId 隔离，5 类记忆：PROFILE/WEAK_POINT/PREFERENCE/PLAN/GENERAL）。MemoryInjectMiddleware 在每次推理前通过 onSystemPrompt 钩子从 DB 动态加载记忆拼入 system prompt，解决 Agent 被 Caffeine 缓存 30 分钟期间记忆不更新的竞态问题。"
+      author: "system"
+    - text: "RAG 全链路：离线阶段：文件上传 → DocumentParser 多格式解析(PDF/DOCX/MD/TXT) → DocumentChunker 4 种分块策略(AUTO/BY_QUESTION/BY_HEADING/BY_SIZE) → EmbeddingService (DashScope text-embedding-v3, 1024维) → DocumentIngestionService 异步入库管道(PARSING→CHUNKING→EMBEDDING→INDEXING→ACTIVE) → Milvus IVF_FLAT 索引。在线阶段：KnowledgeBaseService.searchWithTenant() 多租户检索（公共库 + 用户私有库联合搜索）→ 向量检索(COSINE相似度) + 标量过滤(tags) → 合并排序取 Top-K → Fallback 规则(total==0 或 relevanceScore<0.6 时触发 MCP web_search)。"
+      author: "system"
+    - text: "六个核心求职环节：(1)简历诊断—resume_coach 调用 parse_resume+evaluate_resume+search_questions；(2)模拟面试—mock_interviewer 调用 generate_next_question+search_answers+analyze_answer；(3)面试录音分析—主Agent 调用 transcribe_audio 后并行 spawn tech_evaluator+expression_evaluator；(4)公司面试情报—company_researcher 调用 search_company_info+search_questions；(5)学习计划—study_planner 调用 track_progress+search_learning_resources+search_questions；(6)薪资谈判—salary_advisor 调用 search_salary_data+compare_offers+generate_negotiation_script。"
+      author: "system"
+    - text: "所有时序图和架构图均使用 Mermaid 语法在 Markdown 中绘制，确保在 GitHub/GitLab 等平台上直接渲染。"
+      author: "system"
+
+  documents:
+    - title: "系统技术架构总览"
+      goal: "提供 OfferPilot 系统的整体技术架构蓝图，帮助新人快速建立全局认知。包含分层架构图、技术组件关系图、部署拓扑图。"
+      parent: ""
+      hints: "从 Documents/02-系统架构设计说明书.md §1 获取架构图参考，结合 docker-compose.yml 的 6 个基础设施服务、AGENTS.md 的项目结构、application.yml 的配置分层来绘制。"
+      template: |
+        ## 系统分层架构
+        > 绘制前端→Spring Boot→AgentScope→工具层→基础设施 五层架构 Mermaid 图
+
+        ## 技术栈全景
+        > 以表格列出各层技术选型及版本号
+
+        ## 部署拓扑
+        > 绘制 Docker Compose 6 服务编排关系的 Mermaid 图（app + Milvus + etcd + MinIO + MySQL + Redis）
+
+        ## 项目包结构导航
+        > 以树形图展示 src/main/java/com/tutorial/offerpilot/ 的包结构，标注各包职责
+
+    - title: "AgentScope 核心机制深度解析"
+      goal: "深度解析 ReActAgent 推理循环、@Tool 工具定义与动态激活、多 Agent 协作范式与 Msg 消息流转。适合新人理解智能体框架的底层原理。"
+      parent: ""
+      hints: "从 Documents/02-系统架构设计说明书.md §2 获取 @Tool 定义示例，§4 获取多 Agent 协作设计。从 Documents/04-实现与编码规范.md §3.1 AgentFactory 获取构建流程，§4 获取 Middleware 洋葱模式。从 src/main/java/com/tutorial/offerpilot/agent/ 包读取实际源码。"
+      template: |
+        ## ReActAgent 推理循环
+        > 绘制 Reasoning → Action → Observation 循环的 Mermaid 流程图
+        > 说明 HarnessAgent.builder() 构建链的关键配置项（sysPrompt, model, toolkit, subagent, middleware, stateStore, compaction, memory）
+
+        ## @Tool 工具定义与动态激活
+        > 以 QuestionSearchTool 为例，展示 @Component + @Tool 注解的完整代码结构
+        > 说明 Toolkit.registerTool() 注册机制、Toolkit.registerMetaTool() 元工具
+        > 绘制 13 个本地 @Tool + MCP web_search 的工具全景表格（名称、类别、返回类型、依赖注入）
+
+        ## 多 Agent 协作范式
+        > 绘制主 Agent + 7 子 Agent 的父子关系 Mermaid 图
+        > 说明 SubagentsMiddleware 的 spawn/resume 机制
+        > 说明子 Agent 从主 Toolkit 按 tools() 白名单获取过滤副本的机制
+        > 列出 7 个子 Agent 的 SubagentDeclaration 定义（名称、描述、SysPrompt 摘要、工具白名单）
+
+        ## Msg 消息流转路径
+        > 绘制用户消息 → Controller → AgentFactory.getOrCreateAgent() → RuntimeContext → Agent.call()/streamEvents() → Middleware 链 → LLM 推理 → 返回 Msg 的完整流转 Mermaid 时序图
+
+    - title: "Spring Boot 集成架构"
+      goal: "梳理 Agent 组件在 Spring 容器中的 Bean 注入方式、配置类的扫描路径、LLM 模型初始化与 API 密钥的安全配置管理。帮助新人理解 AgentScope 如何嵌入 Spring 生态。"
+      parent: ""
+      hints: "从 Documents/04-实现与编码规范.md §1 application.yml 获取配置结构，§3.1-3.2 获取 AgentFactory 和 MilvusConfig Bean 定义。从 src/main/java/com/tutorial/offerpilot/config/ 包读取所有配置类源码。从 .env 文件获取环境变量注入方式。"
+      template: |
+        ## Agent 组件 Bean 注入方式
+        > 以 AgentFactory 为例，展示 @Component + 构造器注入 13 个 @Tool Bean 的完整模式
+        > 说明 Caffeine Cache（maximumSize=500, expireAfterAccess=30min）管理 Agent 池的机制
+        > 展示 RuntimeContext（userId, sessionId）的构建与传递路径
+
+        ## 配置类扫描路径
+        > 以表格列出 config/ 包下所有配置类的职责和关键 Bean 定义
+
+        ## LLM 模型初始化
+        > 展示 agentscope.model.* 配置项 → AgentScopeProperties (@ConfigurationProperties) → Model Bean 的构建链路
+        > 说明 Model Bean 的 provider (dashscope)、model-name (qwen-max)、temperature、max-tokens 配置
+
+        ## API 密钥安全配置
+        > 展示 .env → docker-compose.yml 环境变量 → application.yml ${DASHSCOPE_API_KEY} → AgentScopeProperties → Model Bean 的安全传递链路
+        > 说明 JWT Secret 的同理注入方式（${JWT_SECRET}），以及多环境配置策略（application-dev.yml / application-prod.yml）
+
+        ## Middleware 洋葱模式
+        > 绘制 Middleware 链的执行顺序 Mermaid 图（TokenMonitorMiddleware → CostControlMiddleware → MemoryInjectMiddleware → LLM 推理）
+        > 说明 5 个 MiddlewareBase 钩子的用途（onAgent, onSystemPrompt, onReasoning, onActing, onModelCall）
+
+    - title: "记忆与状态管理"
+      goal: "解析短期会话与长期记忆的存储结构，以及向量数据库 Milvus 的适配与调用逻辑。帮助新人理解双层记忆体系的实现原理。"
+      parent: ""
+      hints: "从 Documents/03-详细设计说明书.md §5 获取 UserMemoryService 设计，§1 获取 Milvus 设计。从 src/main/java/com/tutorial/offerpilot/config/MilvusConfig.java 获取连接配置。从 Documents/04-实现与编码规范.md §4.3 获取 MemoryInjectMiddleware。"
+      template: |
+        ## 两层记忆架构
+        > 绘制短期会话记忆（Redis）与长期用户记忆（MySQL）的双层架构 Mermaid 图
+        > 说明各自的数据结构、TTL、读写场景
+
+        ## 短期会话记忆（RedisAgentStateStore）
+        > 说明 Redis Key 设计（session:{sessionId}:messages）
+        > 说明 Session TTL 配置（30 分钟）和自动过期机制
+        > 说明 CompactionConfig（maxTokens=8000）对长对话的自动压缩策略
+
+        ## 长期用户记忆（op_user_memory 表）
+        > 展示 op_user_memory DDL 结构及 5 类记忆分类（PROFILE/WEAK_POINT/PREFERENCE/PLAN/GENERAL）
+        > 展示 UserMemoryService 的 CRUD 核心代码（loadUserMemory/saveMemory/removeMemory）
+        > 说明 relevanceScore 排序和 accessCount 访问统计机制
+
+        ## MemoryInjectMiddleware 动态注入
+        > 展示 onSystemPrompt 钩子中从 DB 加载记忆并拼入 system prompt 的代码流程
+        > 对比静态注入方案的缺陷（Caffeine 缓存期间记忆不更新），说明动态注入的优越性
+
+        ## 向量数据库 Milvus 适配
+        > 展示 MilvusConfig 的 MilvusServiceClient Bean 定义
+        > 说明通用 Collection Schema（id, doc_id, chunk_index, content, tags, metadata_json, embedding 1024维）
+        > 说明 IVF_FLAT 索引配置（COSINE 相似度, nlist=128）
+        > 展示 MilvusCollectionManager 的 createCollection/search/delete 核心 API
+
+    - title: "RAG 面试题处理全链路"
+      goal: "梳理从面试题数据预处理到向量入库的离线阶段，以及在线多路召回、上下文增强、动态生成面试题的完整流程。帮助新人完整理解 RAG 的实现细节。"
+      parent: ""
+      hints: "从 Documents/03-详细设计说明书.md §1 获取完整的 RAG 设计。从 src/main/java/com/tutorial/offerpilot/service/ingestion/ 包获取入库管道源码。从 src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java 获取检索逻辑。"
+      template: |
+        ## RAG 全链路架构
+        > 绘制离线入库 + 在线检索的双阶段 Mermaid 流程图
+
+        ## 离线阶段：数据预处理与入库
+        > 展示 5 阶段异步入库管道的 Mermaid 状态图（UPLOADED→PARSING→CHUNKING→EMBEDDING→INDEXING→ACTIVE）
+        > 说明 DocumentParser 的 4 种格式解析（PDF/PDFBox, DOCX/POI, MD, TXT）
+        > 说明 DocumentChunker 的 4 种分块策略及自动检测逻辑
+        > 说明 EmbeddingService 的 DashScope text-embedding-v3 调用（单条/批量，最多 25 条/次）
+        > 展示 DocumentIngestionService 的核心入库代码流程
+
+        ## 离线阶段：向量索引构建
+        > 说明 Milvus Collection 的动态创建（通用 Schema + IVF_FLAT 索引）
+        > 说明文档与 Milvus offset 的双向映射（kb_chunk.milvus_offset）
+        > 说明重建索引流程（delete by doc_id + re-ingest）
+
+        ## 在线阶段：多路召回
+        > 绘制多路召回策略的 Mermaid 流程图（向量检索 + 标量过滤 + 关联检索 → 合并去重排序）
+        > 说明 KnowledgeBaseService.searchWithTenant() 的多租户联合检索逻辑
+        > 说明 SearchResultCacheService 的 Redis 检索缓存（MD5(query) → 10 分钟 TTL）
+
+        ## 在线阶段：上下文增强与动态生成
+        > 绘制从用户提问 → RAG 检索 → 上下文拼接 → LLM 生成面试题的完整 Mermaid 时序图
+        > 说明 Fallback 策略：total==0 或 relevanceScore<0.6 时触发 MCP web_search
+        > 展示 MockInterviewTool 返回 NextQuestionResult（含 guidance），LLM 据此动态生成面试题的工具-LLM 职责分离模式
+
+        ## 成本估算
+        > 以表格展示 Embedding 和 LLM 调用的成本估算
+
+    - title: "六大核心求职环节 Agent 交互时序"
+      goal: "以 Mermaid 时序图展示简历诊断、模拟面试、面试录音分析、公司面试情报、学习计划、薪资谈判六个核心求职环节的多 Agent 交互流程。帮助新人理解分布式 Agent 协作的实战模式。"
+      parent: ""
+      hints: "从 Documents/01-需求规格说明书.md §3 获取 4 个示例对话流程。从 Documents/02-系统架构设计说明书.md §4 获取 7 个子 Agent 的定义和工具分配。结合 AgentFactory 中的 SubagentDeclaration 定义，绘制每个环节的完整交互时序。"
+      template: |
+        ## 环节一：简历智能诊断
+        > 绘制用户上传简历 → 主Agent → spawn resume_coach → 调用 parse_resume/evaluate_resume/search_questions → 整合结果返回 的 Mermaid 时序图
+        > 标注每个步骤的工具调用和 SysPrompt 指令
+
+        ## 环节二：AI 模拟面试
+        > 绘制用户发起模拟面试 → 主Agent → spawn mock_interviewer → 多轮 generate_next_question/analyze_answer/search_answers → 面试总结 的 Mermaid 时序图
+        > 标注面试模式选择（技术深挖/行为面试/系统设计/压力面试）和追问机制
+
+        ## 环节三：面试录音分析
+        > 绘制用户上传录音 → 主Agent → transcribe_audio → 并行 spawn tech_evaluator + expression_evaluator → 分别分析每题 → 主Agent 整合报告 的 Mermaid 时序图
+        > 标注并行执行的技术评估和表达评估两个维度
+
+        ## 环节四：目标公司面试情报
+        > 绘制用户输入公司+岗位 → 主Agent → spawn company_researcher → search_company_info + search_questions → 生成面试情报卡 的 Mermaid 时序图
+        > 标注多租户检索（公共面经库 + 用户私有面经库）
+
+        ## 环节五：个性化学习计划
+        > 绘制用户查询学习进度 → 主Agent → spawn study_planner → track_progress + search_learning_resources + search_questions → 生成周计划 的 Mermaid 时序图
+        > 标注薄弱点识别与优先级排序逻辑
+
+        ## 环节六：薪资谈判辅助
+        > 绘制用户提供 offer 信息 → 主Agent → spawn salary_advisor → search_salary_data + compare_offers + generate_negotiation_script → 谈判建议 的 Mermaid 时序图
+        > 标注权限控制（薪资信息敏感）和多步骤决策辅助流程
+
+    - title: "关键配置类代码导读"
+      goal: "对 7 个配置类和 AgentFactory 进行代码导读，标注关键 Bean 定义和配置项，帮助新人快速定位和修改系统配置。"
+      parent: ""
+      hints: "从 src/main/java/com/tutorial/offerpilot/config/ 包读取所有配置类实际源码。从 src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java 读取 Agent 构建源码。"
+      template: |
+        ## AgentScopeProperties
+        > 标注 @ConfigurationProperties(prefix="agentscope") 和关键属性映射（model, agent, knowledge）
+        > 对应 application.yml 中的 agentscope.* 配置项
+
+        ## ModelConfig
+        > 标注 Model Bean 的构建方式和 DashScope provider 配置
+
+        ## SecurityConfig
+        > 标注 @EnableWebSecurity + SecurityFilterChain Bean 的配置链
+        > 说明 JWT 无状态策略（SessionCreationPolicy.STATELESS）、CSRF 禁用、接口权限矩阵
+
+        ## MilvusConfig + MilvusProperties
+        > 标注 MilvusServiceClient Bean 的构建（host, port, database, connectTimeout, keepAlive）
+        > 对应 app.milvus.* 配置项
+
+        ## RedisConfig
+        > 标注 Redis 序列化配置和连接工厂
+
+        ## AsyncConfig
+        > 标注 @EnableAsync + ingestionExecutor 线程池配置（corePoolSize=4, maxPoolSize=8, queueCapacity=100）
+
+        ## WebConfig
+        > 标注 CORS 配置
+
+        ## AgentFactory（核心构建器）
+        > 标注构造器注入 13 个 @Tool Bean + UserMemoryService + StringRedisTemplate
+        > 标注 Caffeine Cache 配置（maximumSize=500, expireAfterAccess=30min）
+        > 标注 HarnessAgent.builder() 链的每个关键调用（sysPrompt, model, toolkit, subagent, stateStore, permissionContext, compaction, memory, middleware, enablePlanMode, enableTaskList）
+
+knowledgecard:
+  notes:
+    - text: "OfferPilot 的模块边界划分：controller/ (REST 接口层，7 个 Controller) → service/ (业务逻辑层，15+ Service) → agent/ (AgentScope 框架层，AgentFactory + 13 @Tool + 2 Middleware) → entity/repository/ (数据访问层，18 个 JPA Entity + 15 个 Repository)。Controller 不直接访问 Repository，所有数据操作通过 Service 层编排。"
+      author: "system"
+    - text: "配置管理采用多环境策略：application.yml（公共配置）+ application-dev.yml（开发环境，H2 + DEBUG 日志）+ application-prod.yml（生产环境，MySQL + INFO 日志）。敏感信息（API Key、JWT Secret）通过环境变量注入，不在配置文件中硬编码。"
+      author: "system"
+    - text: "AgentScope v2 的 HarnessAgent 是主入口，通过 builder 模式构建，支持 enablePlanMode()（断点续聊 + todo 管理）和 enableTaskList()（注册 todo_write 元工具）。MiddlewareBase 接口提供 5 个插桩点（onAgent/onSystemPrompt/onReasoning/onActing/onModelCall），采用洋葱模式，必须调用 next.apply(input) 才能继续链。"
+      author: "system"
+    - text: "RAG 知识库采用多租户架构：PUBLIC 公共库（管理员创建，所有人可用）+ PRIVATE 私有库（用户创建，仅自己可见）。Agent 检索时自动联合搜索公共库和用户私有库。Milvus 采用动态 Collection 创建，所有 Collection 共用通用 Schema（通过 tags 和 metadata_json 区分不同文档元数据）。"
+      author: "system"
+    - text: "测试体系分为四层：单元测试（JUnit 5 + Mockito）、集成测试（Testcontainers 启动真实 Docker 容器 MySQL/Milvus/Redis）、API 端点测试（REST Assured + MockMvc）、安全测试（@WithMockUser）。测试数据约定：create_by='test' 或 id>=99000。"
+      author: "system"
+    - text: "异常体系：BusinessException 基类（errorCode + message）→ 5 个业务子类分别对应 HTTP 状态码（DuplicateUserException→409, InvalidCredentialsException→401, AccountDisabledException→403, RateLimitException→429, AgentTimeoutException→504）。GlobalExceptionHandler (@RestControllerAdvice) 统一捕获并返回 ApiResponse。"
+      author: "system"

@@ -32,6 +32,15 @@ export const API = {
   SALARY_SEARCH: '/v1/offerpilot/salary/search',
   SALARY_COMPARE: '/v1/offerpilot/salary/compare',
   SALARY_NEGOTIATION_SCRIPT: '/v1/offerpilot/salary/negotiation-script',
+  // 模型管理
+  ADMIN_MODEL_CONFIGS: '/v1/admin/models',
+  ADMIN_MODEL_CONFIG: (id: number) => `/v1/admin/models/${id}`,
+  ADMIN_MODEL_REFRESH: (id: number) => `/v1/admin/models/${id}/refresh-models`,
+  ADMIN_MODEL_SET_GLOBAL: (id: number) => `/v1/admin/models/${id}/set-global-default`,
+  ADMIN_PROVIDER_PRESETS: '/v1/admin/models/provider-presets',
+  USER_MODELS: '/v1/user/models',
+  USER_DEFAULT_MODEL: '/v1/user/models/default',
+  USER_PRIVATE_MODEL: '/v1/user/models/private',
 } as const;
 
 

@@ -48,6 +48,9 @@ app:
     secret: test-jwt-secret-for-integration-tests-only
     expiration-ms: 86400000
 
+  encryption:
+    secret-key: test-encryption-key-for-it
+
   milvus:
     host: localhost
     port: 19530

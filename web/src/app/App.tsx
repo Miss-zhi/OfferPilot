@@ -15,6 +15,8 @@ import { DocListPage } from '@/ui/pages/admin/documents/DocListPage';
 import { SearchTestPage } from '@/ui/pages/admin/search/SearchTestPage';
 import { ProgressPage } from '@/ui/pages/progress/ProgressPage';
 import { SalaryPage } from '@/ui/pages/salary/SalaryPage';
+import { ModelConfigPage } from '@/ui/pages/admin/models/ModelConfigPage';
+import { SettingsPage } from '@/ui/pages/settings/SettingsPage';
 
 function AuthGuard({ children }: { children: ReactNode }) {
   const isAuth = useAuthStore((s) => s.isAuthenticated());
@@ -100,6 +102,22 @@ export function App() {
               element={
                 <AuthGuard>
                   <SalaryPage />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/admin/models"
+              element={
+                <AuthGuard>
+                  <ModelConfigPage />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <AuthGuard>
+                  <SettingsPage />
                 </AuthGuard>
               }
             />

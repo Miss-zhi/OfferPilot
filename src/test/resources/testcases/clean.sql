@@ -18,3 +18,5 @@ DELETE FROM op_token_blacklist WHERE create_by = 'test';
 DELETE FROM op_scheduled_task_log WHERE create_by = 'test';
 DELETE FROM kb_knowledge_base WHERE create_by = 'test';
 DELETE FROM op_user WHERE create_by = 'test';
+DELETE FROM op_model_name WHERE create_by = 'test';
+DELETE FROM op_model_config WHERE create_by = 'test';

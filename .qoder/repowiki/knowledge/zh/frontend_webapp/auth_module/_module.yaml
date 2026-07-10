@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: frontend_webapp/auth_module
+title: auth_module
+scope:
+    - web/src/ui/pages/login/
+    - web/src/store/auth-store.ts
+    - web/src/service/authService.ts
+source_files: []
+depends_on: []
+related_to: []

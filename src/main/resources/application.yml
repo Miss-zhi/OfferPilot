@@ -60,6 +60,9 @@ app:
     secret: ${JWT_SECRET:dev-jwt-secret-change-in-production}
     expiration-ms: 86400000
 
+  encryption:
+    secret-key: ${ENCRYPTION_SECRET_KEY:dev-key-change-in-production}
+
   milvus:
     host: localhost
     port: 19530

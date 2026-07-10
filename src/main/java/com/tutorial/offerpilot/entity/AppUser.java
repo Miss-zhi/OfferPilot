@@ -43,4 +43,12 @@ public class AppUser extends BaseEntity {
     private String targetPosition;
 
     private Instant lastLoginAt;
+
+    /** 用户默认模型配置ID，关联 op_model_config.id */
+    @Column(name = "default_model_config_id")
+    private Long defaultModelConfigId;
+
+    /** 用户私有模型配置ID（若非空则优先使用） */
+    @Column(name = "private_model_config_id")
+    private Long privateModelConfigId;
 }

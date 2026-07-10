@@ -15,6 +15,8 @@ import {
   UploadOutlined,
   LogoutOutlined,
   ClearOutlined,
+  SettingOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '@/store/auth-store';
 import { useChatStore } from '@/store/chat-store';
@@ -40,6 +42,7 @@ export function ChatPage() {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
   const username = useAuthStore((s) => s.username);
+  const role = useAuthStore((s) => s.role);
   const { sessionId, messages, isStreaming, activeFunction, setSessionId, addMessage, appendStreamContent, setStreaming, setActiveFunction, resetSession } = useChatStore();
 
   const [inputValue, setInputValue] = useState('');
@@ -146,12 +149,37 @@ export function ChatPage() {
         <Menu
           mode="inline"
           selectedKeys={[activeFunction]}
-          onClick={({ key }) => setActiveFunction(key)}
-          items={CHAT_FUNCTIONS.map((fn) => ({
-            key: fn.key,
-            icon: iconMap[fn.icon],
-            label: fn.label,
-          }))}
+          onClick={({ key }) => {
+            if (key === 'nav-models') {
+              navigate('/admin/models');
+            } else if (key === 'nav-settings') {
+              navigate('/settings');
+            } else {
+              setActiveFunction(key);
+            }
+          }}
+          items={[
+            ...CHAT_FUNCTIONS.map((fn) => ({
+              key: fn.key,
+              icon: iconMap[fn.icon],
+              label: fn.label,
+            })),
+            { type: 'divider' },
+            ...(role === 'ADMIN'
+              ? [
+                  {
+                    key: 'nav-models',
+                    icon: <AppstoreOutlined />,
+                    label: '模型管理',
+                  } as const,
+                ]
+              : []),
+            {
+              key: 'nav-settings',
+              icon: <SettingOutlined />,
+              label: '个人设置',
+            },
+          ]}
           style={{ borderRight: 0 }}
         />
       </Sider>

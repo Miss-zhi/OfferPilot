@@ -15,4 +15,7 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     Optional<AppUser> findByUserId(String userId);
 
     boolean existsByUsername(String username);
+
+    /** 统计引用了指定模型配置的用户数 */
+    long countByDefaultModelConfigIdOrPrivateModelConfigId(Long defaultModelConfigId, Long privateModelConfigId);
 }

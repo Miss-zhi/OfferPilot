@@ -7,8 +7,13 @@ import com.tutorial.offerpilot.agent.middleware.CostControlMiddleware;
 import com.tutorial.offerpilot.agent.middleware.TokenMonitorMiddleware;
 import com.tutorial.offerpilot.agent.tool.*;
 import com.tutorial.offerpilot.config.AgentScopeProperties;
+import com.tutorial.offerpilot.service.ApiKeyEncryption;
+import com.tutorial.offerpilot.service.ModelConfigService;
 import com.tutorial.offerpilot.service.UserMemoryService;
+import com.tutorial.offerpilot.service.UserModelService;
 import io.agentscope.core.middleware.MiddlewareBase;
+import io.agentscope.core.model.Model;
+import io.agentscope.core.model.ModelRegistry;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +51,15 @@ class AgentFactoryTest {
     private UserMemoryService userMemoryService;
 
     @Mock
+    private UserModelService userModelService;
+
+    @Mock
+    private ModelConfigService modelConfigService;
+
+    @Mock
+    private ApiKeyEncryption apiKeyEncryption;
+
+    @Mock
     private AnswerAnalyzeTool answerAnalyzeTool;
     @Mock
     private AnswerSearchTool answerSearchTool;
@@ -76,13 +90,20 @@ class AgentFactoryTest {
         lenient().when(properties.getModel()).thenReturn(modelConfig);
         lenient().when(modelConfig.getProvider()).thenReturn("dashscope");
         lenient().when(modelConfig.getModelName()).thenReturn("qwen-max");
+        // Default: no user/global model config → fallback to yml config
+        lenient().when(userModelService.getUserModelConfig(anyString())).thenReturn(null);
+        lenient().when(modelConfigService.getGlobalDefault()).thenReturn(null);
     }
 
-    /** 便捷方法：设置 HarnessAgent.builder() 静态 Mock 并返回 mocked Builder。
+    /** 便捷方法：设置 HarnessAgent.builder() 和 ModelRegistry.resolve() 静态 Mock。
      *  每次 build() 返回新的 HarnessAgent mock（避免缓存测试误判）。
      *  使用 lenient 避免部分测试未触发 build 时报 UnnecessaryStubbing。 */
-    private static BuilderMocks setupBuilderMock(MockedStatic<HarnessAgent> harnessStatic) {
+    private static TestMocks setupTestMocks() {
+        MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class);
+        MockedStatic<ModelRegistry> registryStatic = mockStatic(ModelRegistry.class);
+
         HarnessAgent.Builder builder = mock(HarnessAgent.Builder.class, RETURNS_SELF);
+        Model mockModel = mock(Model.class);
 
         lenient().when(HarnessAgent.builder()).thenReturn(builder);
         lenient().when(builder.build()).thenAnswer(inv -> {
@@ -91,10 +112,16 @@ class AgentFactoryTest {
             return a;
         });
 
-        return new BuilderMocks(builder);
+        registryStatic.when(() -> ModelRegistry.resolve(anyString())).thenReturn(mockModel);
+        registryStatic.when(() -> ModelRegistry.resolve(anyString(), any())).thenReturn(mockModel);
+
+        return new TestMocks(harnessStatic, registryStatic, builder, mockModel);
     }
 
-    private record BuilderMocks(HarnessAgent.Builder builder) {}
+    private record TestMocks(MockedStatic<HarnessAgent> harness, MockedStatic<ModelRegistry> registry,
+                             HarnessAgent.Builder builder, Model model) implements AutoCloseable {
+        @Override public void close() { harness.close(); registry.close(); }
+    }
 
     // ==================== Caffeine 缓存池 ====================
 
@@ -105,8 +132,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("相同 userId → 返回缓存实例（只调用一次 build）")
         void sameUserId_returnsCachedAgent() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 HarnessAgent a1 = agentFactory.getOrCreateAgent("user1");
                 HarnessAgent a2 = agentFactory.getOrCreateAgent("user1");
@@ -119,8 +145,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("不同 userId → 返回不同实例（各自创建一次）")
         void differentUserIds_returnsDifferentAgents() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 HarnessAgent a1 = agentFactory.getOrCreateAgent("user1");
                 HarnessAgent a2 = agentFactory.getOrCreateAgent("user2");
@@ -133,8 +158,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("evictAgent → 缓存失效，下次 getOrCreate 重建")
         void evictAgent_invalidatesCache() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 HarnessAgent a1 = agentFactory.getOrCreateAgent("user1");
                 agentFactory.evictAgent("user1");
@@ -154,8 +178,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("多用户并发访问 → 各自缓存不互相干扰")
         void concurrentAccess_differentUsers_isolated() throws Exception {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 int threadCount = 10;
                 ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -194,8 +217,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("Agent name = 'offerpilot_' + userId")
         void agentName_shouldBeOfferpilotPlusUserId() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 agentFactory.getOrCreateAgent("zhangsan");
 
@@ -206,23 +228,24 @@ class AgentFactoryTest {
         @Test
         @DisplayName("model identifier = 'provider:modelName'")
         void modelIdentifier_shouldBeProviderPlusModelName() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 when(modelConfig.getProvider()).thenReturn("openai");
                 when(modelConfig.getModelName()).thenReturn("gpt-4");
 
                 agentFactory.getOrCreateAgent("user1");
 
-                verify(mocks.builder()).model("openai:gpt-4");
+                // Builder receives Model instance (resolved by ModelRegistry)
+                verify(mocks.builder()).model(any(Model.class));
+                // ModelRegistry.resolve was called with the correct fallback modelId
+                mocks.registry().verify(() -> ModelRegistry.resolve("openai:gpt-4"));
             }
         }
 
         @Test
         @DisplayName("系统提示词非空且包含关键角色描述")
         void sysPrompt_shouldContainOfferPilotRole() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<String> sysPromptCaptor = ArgumentCaptor.forClass(String.class);
 
@@ -241,8 +264,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("enablePlanMode() 被调用")
         void enablePlanMode_shouldBeCalled() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 agentFactory.getOrCreateAgent("user1");
 
@@ -253,8 +275,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("enableTaskList() 被调用")
         void enableTaskList_shouldBeCalled() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 agentFactory.getOrCreateAgent("user1");
 
@@ -265,8 +286,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("middleware 传入 2 个（TokenMonitor + CostControl）")
         void middleware_shouldAddTwoInstances() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<MiddlewareBase> middlewareCaptor = ArgumentCaptor.forClass(MiddlewareBase.class);
 
@@ -288,8 +308,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("每次构建 → 中间件是新实例（线程安全）")
         void middleware_shouldBeNewInstancesEachBuild() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 // 构建 user1
                 agentFactory.getOrCreateAgent("user1");
@@ -320,8 +339,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("Toolkit 包含 4 个分组 + 至少 12 个工具（11 业务 + meta）")
         void toolkit_shouldHaveCorrectGroupsAndTools() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<Toolkit> toolkitCaptor = ArgumentCaptor.forClass(Toolkit.class);
 
@@ -346,8 +364,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("knowledge_retrieval 分组含 4 个检索工具")
         void knowledgeRetrievalGroup_hasCorrectTools() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<Toolkit> toolkitCaptor = ArgumentCaptor.forClass(Toolkit.class);
 
@@ -370,8 +387,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("resume_analysis 分组含 2 个简历工具")
         void resumeAnalysisGroup_hasCorrectTools() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<Toolkit> toolkitCaptor = ArgumentCaptor.forClass(Toolkit.class);
 
@@ -390,8 +406,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("interview 分组含 3 个面试工具")
         void interviewGroup_hasCorrectTools() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<Toolkit> toolkitCaptor = ArgumentCaptor.forClass(Toolkit.class);
 
@@ -412,8 +427,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("utility 分组含 2 个通用工具")
         void utilityGroup_hasCorrectTools() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<Toolkit> toolkitCaptor = ArgumentCaptor.forClass(Toolkit.class);
 
@@ -432,8 +446,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("registerMetaTool → Meta 工具被注册")
         void metaTool_shouldBeRegistered() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 ArgumentCaptor<Toolkit> toolkitCaptor = ArgumentCaptor.forClass(Toolkit.class);
 
@@ -458,8 +471,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("userId 为 null → Caffeine 拒绝 null key 抛 NPE")
         void nullUserId_shouldThrowNpe() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 assertThrows(NullPointerException.class,
                         () -> agentFactory.getOrCreateAgent(null),
@@ -470,8 +482,7 @@ class AgentFactoryTest {
         @Test
         @DisplayName("相同 userId 反复 evict + get → 每次都重建")
         void repeatedEvict_shouldRebuildEachTime() {
-            try (MockedStatic<HarnessAgent> harnessStatic = mockStatic(HarnessAgent.class)) {
-                BuilderMocks mocks = setupBuilderMock(harnessStatic);
+            try (TestMocks mocks = setupTestMocks()) {
 
                 for (int i = 0; i < 5; i++) {
                     agentFactory.getOrCreateAgent("user1");
