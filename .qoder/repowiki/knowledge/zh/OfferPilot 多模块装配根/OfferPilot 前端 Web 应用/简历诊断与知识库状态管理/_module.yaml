@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: frontend_webapp/resume_feature
+title: 简历诊断与知识库状态管理
+scope:
+    - web/src/ui/pages/resume/
+    - web/src/service/resumeService.ts
+    - web/src/store/kb-store.ts
+source_files: []
+depends_on: []
+related_to:
+    - path: backend_api/resume_evaluation

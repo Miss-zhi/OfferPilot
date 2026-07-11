@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-10T13:34:23Z"
+exported_at: "2026-07-10T14:19:08Z"
 modules:
     "":
-        dir_name: OfferPilot 多子模块根装配层
-        title: OfferPilot 多子模块根装配层
+        dir_name: OfferPilot 多模块装配根
+        title: OfferPilot 多模块装配根
         scope:
             - pom.xml
             - docker-compose.yml
@@ -45,7 +45,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/interview_analysis
     backend_api/interview_analysis:
         dir_name: 面试分析对话与报告生成
         title: 面试分析对话与报告生成
@@ -56,7 +57,10 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/agent_framework
+            - path: backend_api/progress_tracking
+            - path: frontend_webapp/chat_feature
     backend_api/knowledge_base:
         dir_name: RAG 知识库与文档入库管道
         title: RAG 知识库与文档入库管道
@@ -69,7 +73,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: frontend_webapp/knowledge_admin
     backend_api/model_config_management:
         dir_name: LLM Provider 模型配置与用户偏好管理
         title: LLM Provider 模型配置与用户偏好管理
@@ -89,7 +94,9 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: frontend_webapp/model_admin_page
+            - path: frontend_webapp/user_settings_page
     backend_api/progress_tracking:
         dir_name: 学习进度追踪与用户记忆服务
         title: 学习进度追踪与用户记忆服务
@@ -100,7 +107,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/interview_analysis
     backend_api/resume_evaluation:
         dir_name: 简历解析与评估服务
         title: 简历解析与评估服务
@@ -111,7 +119,9 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/salary_negotiation
+            - path: frontend_webapp/resume_feature
     backend_api/salary_negotiation:
         dir_name: 薪资查询与 Offer 谈判辅助
         title: 薪资查询与 Offer 谈判辅助
@@ -122,10 +132,11 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/resume_evaluation
     backend_api/shared_infrastructure:
-        dir_name: 共享基础设施（安全认证、全局异常与通用配置）
-        title: 共享基础设施（安全认证、全局异常与通用配置）
+        dir_name: 共享基础设施层（安全、配置、异常与通用模型）
+        title: 共享基础设施层（安全、配置、异常与通用模型）
         scope:
             - src/main/java/com/tutorial/offerpilot/config/
             - src/main/java/com/tutorial/offerpilot/security/
@@ -134,7 +145,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: frontend_webapp/auth_module
     frontend_webapp:
         dir_name: OfferPilot 前端 Web 应用
         title: OfferPilot 前端 Web 应用
@@ -174,7 +186,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/shared_infrastructure
     frontend_webapp/chat_feature:
         dir_name: 求职对话聊天前端模块
         title: 求职对话聊天前端模块
@@ -185,7 +198,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/interview_analysis
     frontend_webapp/knowledge_admin:
         dir_name: 知识库管理后台页面（文档_知识库_检索测试）
         title: 知识库管理后台页面（文档/知识库/检索测试）
@@ -196,7 +210,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/knowledge_base
     frontend_webapp/model_admin_page:
         dir_name: 模型配置管理页面（Admin & User）
         title: 模型配置管理页面（Admin & User）
@@ -206,7 +221,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/model_config_management
     frontend_webapp/resume_feature:
         dir_name: 简历诊断与知识库状态管理
         title: 简历诊断与知识库状态管理
@@ -217,7 +233,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/resume_evaluation
     frontend_webapp/user_settings_page:
         dir_name: 用户模型偏好设置页面
         title: 用户模型偏好设置页面
@@ -226,7 +243,8 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: backend_api/model_config_management
     project_docs:
         dir_name: 项目文档与 Agent 提示词模板库
         title: 项目文档与 Agent 提示词模板库

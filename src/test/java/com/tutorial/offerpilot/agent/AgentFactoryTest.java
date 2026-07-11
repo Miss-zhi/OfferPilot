@@ -237,8 +237,8 @@ class AgentFactoryTest {
 
                 // Builder receives Model instance (resolved by ModelRegistry)
                 verify(mocks.builder()).model(any(Model.class));
-                // ModelRegistry.resolve was called with the correct fallback modelId
-                mocks.registry().verify(() -> ModelRegistry.resolve("openai:gpt-4"));
+                // ModelRegistry.resolve was called with the correct fallback modelId + context
+                mocks.registry().verify(() -> ModelRegistry.resolve(eq("openai:gpt-4"), any()));
             }
         }
 

@@ -27,9 +27,10 @@ spring:
 # Disable AgentScope auto-init in tests
 agentscope:
   model:
-    provider: dashscope
-    api-key: ${DASHSCOPE_API_KEY:sk-test-placeholder}
-    model-name: qwen-max
+    provider: openai
+    api-key: ${DEEPSEEK_API_KEY:sk-test-placeholder}
+    base-url: https://api.deepseek.com
+    model-name: deepseek-chat
     temperature: 0.7
     max-tokens: 4096
 
@@ -43,8 +44,12 @@ agentscope:
     auto-init: false
 
   embedding:
-    api-key: ${EMBEDDING_API_KEY:}
+    api-key: ${EMBEDDING_API_KEY:sk-test-placeholder}
     provider: dashscope
+
+  transcription:
+    api-key: ${TRANSCRIPTION_API_KEY:sk-test-placeholder}
+    model: paraformer-v2
 
 # App config
 app:

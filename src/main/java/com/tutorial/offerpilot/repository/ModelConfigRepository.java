@@ -25,4 +25,7 @@ public interface ModelConfigRepository extends JpaRepository<ModelConfig, Long> 
 
     /** 按 provider 查找 */
     List<ModelConfig> findByProvider(String provider);
+
+    /** 查询某 provider 下管理员已配置且启用的模型（用于校验私有模型创建的合法性） */
+    List<ModelConfig> findByProviderAndIsEnabledTrueAndIsPrivateFalse(String provider);
 }

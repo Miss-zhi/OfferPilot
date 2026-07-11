@@ -138,6 +138,31 @@
             <artifactId>agentscope-harness</artifactId>
             <version>${agentscope.version}</version>
         </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-openai</artifactId>
+            <version>${agentscope.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-dashscope</artifactId>
+            <version>${agentscope.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-anthropic</artifactId>
+            <version>${agentscope.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-gemini</artifactId>
+            <version>${agentscope.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-model-ollama</artifactId>
+            <version>${agentscope.version}</version>
+        </dependency>
 
         <!-- Lombok -->
         <dependency>

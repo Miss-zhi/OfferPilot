@@ -35,6 +35,7 @@ agentscope:
   model:
     provider: dashscope
     api-key: ${DASHSCOPE_API_KEY:sk-xxx}
+    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
     model-name: qwen-max
     temperature: 0.7
     max-tokens: 4096
@@ -58,9 +59,17 @@ agentscope:
   # 当 LLM 切换到 DeepSeek 等不支持 Embedding 的 Provider 时，
   # 只需配置 EMBEDDING_API_KEY 指向 DashScope/OpenAI 等，无需改动模型 Key
   embedding:
-    api-key: ${EMBEDDING_API_KEY:}
+    api-key: ${EMBEDDING_API_KEY:${DASHSCOPE_API_KEY:}}
     provider: dashscope
     base-url: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
+
+  # 录音转写独立配置 — 与 LLM Model 解耦
+  # 使用 DashScope Paraformer（OpenAI 兼容 /v1/audio/transcriptions 端点）
+  # api-key 优先级: TRANSCRIPTION_API_KEY > DASHSCOPE_API_KEY > model.api-key（代码回退）
+  transcription:
+    api-key: ${TRANSCRIPTION_API_KEY:${DASHSCOPE_API_KEY:}}
+    model: paraformer-v2
+    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
 
 # App config
 app:

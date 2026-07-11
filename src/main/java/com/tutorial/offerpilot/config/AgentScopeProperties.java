@@ -16,11 +16,13 @@ public class AgentScopeProperties {
     private AgentConfig agent = new AgentConfig();
     private KnowledgeConfig knowledge = new KnowledgeConfig();
     private EmbeddingConfig embedding = new EmbeddingConfig();
+    private TranscriptionConfig transcription = new TranscriptionConfig();
 
     @Data
     public static class ModelConfig {
         private String provider = "dashscope";
         private String apiKey;
+        private String baseUrl;
         private String modelName = "qwen-max";
         private Double temperature = 0.7;
         private Integer maxTokens = 4096;
@@ -62,5 +64,20 @@ public class AgentScopeProperties {
         private String apiKey;
         /** Embedding API Base URL */
         private String baseUrl = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding";
+    }
+
+    /**
+     * 录音转写独立配置 — 与 LLM Model 解耦。
+     * 默认使用 DashScope Paraformer（OpenAI 兼容 /v1/audio/transcriptions）。
+     * 未配置 api-key 时自动回退使用 agentscope.model.api-key。
+     */
+    @Data
+    public static class TranscriptionConfig {
+        /** 转写模型，默认 paraformer-v2 */
+        private String model = "paraformer-v2";
+        /** 转写 API Key，未配置时回退使用 agentscope.model.api-key */
+        private String apiKey;
+        /** 转写 API Base URL（OpenAI 兼容端点） */
+        private String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
     }
 }

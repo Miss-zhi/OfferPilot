@@ -4,6 +4,7 @@
 package com.tutorial.offerpilot.agent.tool;
 
 import com.tutorial.offerpilot.dto.tool.TranscribeResult;
+import com.tutorial.offerpilot.service.TranscriptionService;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,12 @@ import java.nio.file.Path;
 @Slf4j
 @Component
 public class AudioTranscribeTool {
+
+    private final TranscriptionService transcriptionService;
+
+    public AudioTranscribeTool(TranscriptionService transcriptionService) {
+        this.transcriptionService = transcriptionService;
+    }
 
     @Tool(name = "transcribe_audio", description = "转写面试录音文件为文本，支持常见音频格式")
     public TranscribeResult transcribe(
@@ -34,7 +41,8 @@ public class AudioTranscribeTool {
                 return new TranscribeResult("文件不存在: " + filePath, 0, 0);
             }
 
-            String content = Files.readString(path);
+            // 调用 DashScope Paraformer 真实转写
+            String content = transcriptionService.transcribe(filePath);
             int durationSeconds = estimateDuration(content);
             int questionCount = countQuestions(content);
 
@@ -42,8 +50,8 @@ public class AudioTranscribeTool {
                     content.length(), durationSeconds, questionCount);
             return new TranscribeResult(content, durationSeconds, questionCount);
         } catch (IOException e) {
-            log.warn("transcribe_audio: read failed: {}", e.getMessage());
-            return new TranscribeResult("文件读取失败: " + e.getMessage(), 0, 0);
+            log.warn("transcribe_audio: failed: {}", e.getMessage());
+            return new TranscribeResult("转写失败: " + e.getMessage(), 0, 0);
         }
     }
 

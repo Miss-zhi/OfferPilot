@@ -72,6 +72,9 @@ export function SettingsPage() {
     }
   };
 
+  const allowedProviders = [...new Set(data.map((item) => item.provider))];
+  const filteredPresets = presets.filter((p) => allowedProviders.includes(p.provider));
+
   const columns: ColumnsType<UserModelItem> = [
     {
       title: 'Provider', dataIndex: 'provider', key: 'provider', width: 140,
@@ -148,7 +151,7 @@ export function SettingsPage() {
             rules={[{ required: true, message: '请选择 Provider' }]}
           >
             <Select placeholder="请选择 Provider">
-              {presets.map((p) => (
+              {filteredPresets.map((p) => (
                 <Select.Option key={p.provider} value={p.provider}>
                   {p.displayName}
                 </Select.Option>

@@ -14,6 +14,7 @@
 - [ProviderPreset.java](file://src/main/java/com/tutorial/offerpilot/enums/ProviderPreset.java)
 - [ModelConfigRepository.java](file://src/main/java/com/tutorial/offerpilot/repository/ModelConfigRepository.java)
 - [AgentScopeProperties.java](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java)
+- [EmbeddingService.java](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java)
 - [MilvusConfig.java](file://src/main/java/com/tutorial/offerpilot/config/MilvusConfig.java)
 - [MilvusProperties.java](file://src/main/java/com/tutorial/offerpilot/config/MilvusProperties.java)
 - [RedisConfig.java](file://src/main/java/com/tutorial/offerpilot/config/RedisConfig.java)
@@ -22,6 +23,7 @@
 - [AsyncConfig.java](file://src/main/java/com/tutorial/offerpilot/config/AsyncConfig.java)
 - [application.yml](file://src/main/resources/application.yml)
 - [docker-compose.yml](file://docker-compose.yml)
+- [.gitignore](file://.gitignore)
 - [JwtTokenProvider.java](file://src/main/java/com/tutorial/offerpilot/security/JwtTokenProvider.java)
 </cite>
 
@@ -32,6 +34,9 @@
 - 新增 ModelConfigService、UserModelService、ApiKeyEncryption 服务及对应的 REST 控制器
 - 增强 API 密钥安全管理，支持 AES 加密存储和脱敏显示
 - 完善模型列表自动拉取功能，支持多种 API 格式响应解析
+- **新增** agentscope.embedding.* 独立配置段，支持 EMBEDDING_API_KEY 环境变量注入
+- **新增** agentscope.transcription.* 独立配置段，支持 TRANSCRIPTION_API_KEY 环境变量注入
+- **增强** .env 文件安全处理和环境配置策略
 
 ## Agent 组件 Bean 注入方式
 - 工厂类与工具注入模式
@@ -97,7 +102,7 @@ AgentFactory --> ApiKeyEncryption : "解密API密钥"
 
 | 配置类 | 主要职责 | 关键 Bean / 行为 |
 | --- | --- | --- |
-| AgentScopeProperties | 绑定 agentscope.* 配置项（模型、Agent、知识库） | @ConfigurationProperties(prefix="agentscope")，提供 ModelConfig/AgentConfig/KnowledgeConfig |
+| AgentScopeProperties | 绑定 agentscope.* 配置项（模型、Agent、知识库、Embedding、转写） | @ConfigurationProperties(prefix="agentscope")，提供 ModelConfig/AgentConfig/KnowledgeConfig/EmbeddingConfig/TranscriptionConfig |
 | MilvusConfig | 初始化 Milvus v2 客户端连接 | milvusClient(MilvusProperties) → MilvusClientV2 |
 | MilvusProperties | 绑定 app.milvus.* 配置项 | host/port/database/connectTimeoutMs/keepAliveTimeMs |
 | RedisConfig | 暴露 StringRedisTemplate | stringRedisTemplate(RedisConnectionFactory) |
@@ -107,6 +112,7 @@ AgentFactory --> ApiKeyEncryption : "解密API密钥"
 
 **章节来源**   
 - [AgentScopeProperties.java:10-17](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L10-17)
+- [AgentScopeProperties.java:53-81](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L53-81)
 - [MilvusConfig.java:18-29](file://src/main/java/com/tutorial/offerpilot/config/MilvusConfig.java#L18-29)
 - [MilvusProperties.java:10-20](file://src/main/java/com/tutorial/offerpilot/config/MilvusProperties.java#L10-20)
 - [RedisConfig.java:14-17](file://src/main/java/com/tutorial/offerpilot/config/RedisConfig.java#L14-17)
@@ -218,6 +224,59 @@ G --> H["AgentFactory 构建 Model"]
 - [ModelConfigService.java:67](file://src/main/java/com/tutorial/offerpilot/service/ModelConfigService.java#L67)
 - [application.yml:63-64](file://src/main/resources/application.yml#L63-64)
 
+## 嵌入与转写服务独立配置
+- **新增** 系统现在支持 Embedding 和语音转写服务的独立配置，与 LLM 模型配置解耦
+
+### Embedding 独立配置
+当 LLM Provider 切换到不支持 Embedding 的服务商（如 DeepSeek）时，可以通过独立的 embedding 配置指定不同的 Embedding Provider：
+
+| 配置项 | 说明 | 默认值 | 环境变量支持 |
+| --- | --- | --- | --- |
+| agentscope.embedding.provider | Embedding Provider | dashscope | - |
+| agentscope.embedding.api-key | Embedding API Key | 回退到 model.api-key | EMBEDDING_API_KEY |
+| agentscope.embedding.base-url | Embedding API Base URL | DashScope Embedding 端点 | - |
+
+### 语音转写独立配置
+系统支持独立的语音转写配置，默认使用 DashScope Paraformer：
+
+| 配置项 | 说明 | 默认值 | 环境变量支持 |
+| --- | --- | --- | --- |
+| agentscope.transcription.model | 转写模型 | paraformer-v2 | - |
+| agentscope.transcription.api-key | 转写 API Key | 回退到 model.api-key | TRANSCRIPTION_API_KEY |
+| agentscope.transcription.base-url | 转写 API Base URL | DashScope OpenAI 兼容端点 | - |
+
+### 配置优先级策略
+```mermaid
+flowchart LR
+A["embedding.api-key"] --> B{"是否配置?"}
+B --> |是| C["使用 embedding.api-key"]
+B --> |否| D["回退到 model.api-key"]
+E["transcription.api-key"] --> F{"是否配置?"}
+F --> |是| G["使用 transcription.api-key"]
+F --> |否| H["回退到 model.api-key"]
+```
+
+**图表来源**   
+- [EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-58)
+- [AgentScopeProperties.java:53-81](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L53-81)
+
+### 环境变量注入示例
+```bash
+# 在 .env 文件中配置独立的 Embedding API Key
+EMBEDDING_API_KEY=sk-dashscope-embedding-key
+
+# 配置独立的转写 API Key  
+TRANSCRIPTION_API_KEY=sk-dashscope-transcription-key
+
+# 或者共用 DashScope API Key
+DASHSCOPE_API_KEY=sk-dashscope-shared-key
+```
+
+**章节来源**   
+- [AgentScopeProperties.java:53-81](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L53-81)
+- [EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-58)
+- [application.yml:57-71](file://src/main/resources/application.yml#L57-71)
+
 ## 管理员模型配置管理接口
 - **新增** 完整的模型配置 CRUD 管理和 Provider 预设管理
 
@@ -290,3 +349,40 @@ Agent-->>Client : 返回最终结果
 
 **章节来源**   
 - [AgentFactory.java:120-133](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L120-133)
+
+## 环境配置与安全最佳实践
+- **新增** 完整的环境变量管理和安全配置指南
+
+### .env 文件安全处理
+项目采用严格的安全策略处理敏感配置文件：
+
+| 文件类型 | 用途 | Git 忽略 | 安全级别 |
+| --- | --- | --- | --- |
+| .env | 环境变量配置文件 | ✅ 已忽略 | 高 |
+| application.yml | 基础配置 | ❌ 提交 | 低 |
+| application-dev.yml | 开发环境配置 | ❌ 提交 | 中 |
+| application-prod.yml | 生产环境配置 | ❌ 提交 | 中 |
+
+### 环境变量优先级策略
+```mermaid
+flowchart TD
+A["系统环境变量"] --> B["最高优先级"]
+C["docker-compose.yml 环境变量"] --> D["中等优先级"]
+E[".env 文件"] --> F["最低优先级"]
+G["application.yml 默认值"] --> H["兜底值"]
+B --> I["最终生效的配置"]
+D --> I
+F --> I
+H --> I
+```
+
+### 安全配置清单
+- **.gitignore 保护**：.env 文件已被添加到 git 忽略列表，防止敏感信息泄露
+- **环境变量注入**：所有敏感配置通过环境变量注入，支持 Docker 容器化部署
+- **密钥轮换支持**：支持运行时环境变量更新，无需重启应用
+- **多环境隔离**：通过 Spring Profiles 实现开发、测试、生产环境隔离
+
+**章节来源**   
+- [.gitignore:21-22](file://.gitignore#L21-22)
+- [application.yml:34-71](file://src/main/resources/application.yml#L34-71)
+- [docker-compose.yml:21-25](file://docker-compose.yml#L21-25)

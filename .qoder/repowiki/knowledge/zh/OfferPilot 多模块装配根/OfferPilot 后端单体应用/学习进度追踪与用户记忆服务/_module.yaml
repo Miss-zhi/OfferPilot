@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: backend_api/progress_tracking
+title: 学习进度追踪与用户记忆服务
+scope:
+    - src/main/java/com/tutorial/offerpilot/controller/ProgressController.java
+    - src/main/java/com/tutorial/offerpilot/service/UserMemoryService.java
+    - src/main/java/com/tutorial/offerpilot/dto/progress/
+source_files: []
+depends_on: []
+related_to:
+    - path: backend_api/interview_analysis

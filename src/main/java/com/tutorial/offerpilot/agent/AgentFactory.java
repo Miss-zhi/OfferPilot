@@ -24,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Set;
 
 /**
  * Agent 构建工厂 + Caffeine 有界缓存池管理。
@@ -35,6 +36,14 @@ public class AgentFactory {
 
     private static final int MAX_AGENTS = 500;
     private static final int EVICT_MINUTES = 30;
+
+    /**
+     * OpenAI 兼容但非 openai 前缀的 Provider。
+     * AgentScope 框架中这些 Provider 无独立 SPI ModelProvider，
+     * 必须映射为 openai: 前缀 + 自定义 baseUrl 以复用 OpenAIModelProvider。
+     */
+    private static final Set<String> OPENAI_COMPATIBLE_PROVIDERS =
+            Set.of("deepseek", "siliconflow", "volcengine");
 
     private final AgentScopeProperties properties;
     private final UserMemoryService userMemoryService;
@@ -276,7 +285,8 @@ public class AgentFactory {
             String provider = modelConfig.getProvider();
             String modelName = modelConfig.getDefaultModelName();
             String apiKey = apiKeyEncryption.decrypt(modelConfig.getApiKey());
-            String modelId = provider + ":" + modelName;
+            String asProvider = mapToAgentScopeProvider(provider);
+            String modelId = asProvider + ":" + modelName;
 
             ModelCreationContext context = ModelCreationContext.builder()
                     .apiKey(apiKey)
@@ -284,6 +294,7 @@ public class AgentFactory {
                     .build();
 
             try {
+                log.debug("Resolving model: {} (original provider: {})", modelId, provider);
                 return ModelRegistry.resolve(modelId, context);
             } catch (Exception e) {
                 log.warn("Failed to resolve model {} with context, falling back to yml config", modelId, e);
@@ -291,10 +302,26 @@ public class AgentFactory {
         }
 
         // 4. 最终兜底：使用 application.yml 中的 agentscope.model.* 配置
-        String fallbackModelId = properties.getModel().getProvider() + ":"
+        String asProvider = mapToAgentScopeProvider(properties.getModel().getProvider());
+        String fallbackModelId = asProvider + ":"
                 + properties.getModel().getModelName();
+        ModelCreationContext fallbackContext = ModelCreationContext.builder()
+                .apiKey(properties.getModel().getApiKey())
+                .baseUrl(properties.getModel().getBaseUrl())
+                .build();
         log.info("Using fallback model from application.yml: {}", fallbackModelId);
-        return ModelRegistry.resolve(fallbackModelId);
+        return ModelRegistry.resolve(fallbackModelId, fallbackContext);
+    }
+
+    /**
+     * 将 OfferPilot ProviderPreset.providerKey 映射为 AgentScope SPI providerId。
+     * deepseek / siliconflow / volcengine 无独立 SPI Provider，统一映射为 openai。
+     */
+    private String mapToAgentScopeProvider(String provider) {
+        if (provider != null && OPENAI_COMPATIBLE_PROVIDERS.contains(provider)) {
+            return "openai";
+        }
+        return provider;
     }
 
     /**

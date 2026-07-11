@@ -112,6 +112,13 @@ public class UserModelService {
             throw new BusinessException(HttpStatus.BAD_REQUEST.value(), "不支持的 Provider: " + req.getProvider());
         }
 
+        // 校验：仅允许在管理员已配置且启用的 Provider 范围内创建私有模型
+        List<ModelConfig> adminConfigs = configRepo.findByProviderAndIsEnabledTrueAndIsPrivateFalse(req.getProvider());
+        if (adminConfigs.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST.value(),
+                    "该 Provider 尚未被管理员配置，暂不可用");
+        }
+
         ModelConfig config = new ModelConfig();
         config.setProvider(preset.getProviderKey());
         config.setBaseUrl(preset.getDefaultBaseUrl());
