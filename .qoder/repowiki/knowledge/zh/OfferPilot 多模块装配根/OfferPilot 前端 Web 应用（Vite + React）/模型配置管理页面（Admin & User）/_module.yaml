@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: frontend_webapp/model_admin_page
+title: 模型配置管理页面（Admin & User）
+scope:
+    - web/src/ui/pages/admin/models/ModelConfigPage.tsx
+    - web/src/service/modelConfigService.ts
+source_files: []
+depends_on: []
+related_to: []

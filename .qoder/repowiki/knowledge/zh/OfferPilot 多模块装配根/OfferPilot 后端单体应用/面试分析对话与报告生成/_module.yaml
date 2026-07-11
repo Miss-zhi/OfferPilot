@@ -7,7 +7,4 @@ scope:
     - src/main/java/com/tutorial/offerpilot/dto/chat/
 source_files: []
 depends_on: []
-related_to:
-    - path: backend_api/agent_framework
-    - path: backend_api/progress_tracking
-    - path: frontend_webapp/chat_feature
+related_to: []

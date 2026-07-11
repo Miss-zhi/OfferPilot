@@ -25,5 +25,6 @@ public class QuestionSearchResult {
         private String content;
         private String category;
         private Float relevanceScore;
+        private String source;
     }
 }

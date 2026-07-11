@@ -8,6 +8,7 @@ import com.tutorial.offerpilot.dto.chat.ChatRequest;
 import com.tutorial.offerpilot.exception.GlobalExceptionHandler;
 import com.tutorial.offerpilot.exception.RateLimitException;
 import com.tutorial.offerpilot.service.RateLimitService;
+import com.tutorial.offerpilot.service.SearchAnalyticsService;
 import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentEventType;
@@ -56,6 +57,9 @@ class ChatControllerTest {
 
     @Mock
     private AgentFactory agentFactory;
+
+    @Mock
+    private SearchAnalyticsService searchAnalyticsService;
 
     @Mock
     private HarnessAgent agent;

@@ -9,6 +9,7 @@ import com.tutorial.offerpilot.dto.chat.ChatRequest;
 import com.tutorial.offerpilot.dto.chat.ChatResponse;
 import com.tutorial.offerpilot.exception.RateLimitException;
 import com.tutorial.offerpilot.service.RateLimitService;
+import com.tutorial.offerpilot.service.SearchAnalyticsService;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentEventType;
@@ -36,6 +37,7 @@ public class ChatController {
 
     private final RateLimitService rateLimitService;
     private final AgentFactory agentFactory;
+    private final SearchAnalyticsService searchAnalyticsService;
 
     /** 同步对话 */
     @PostMapping
@@ -61,6 +63,11 @@ public class ChatController {
         String reply = msg != null ? msg.getTextContent() : null;
         ChatResponse response = new ChatResponse(
                 reply != null ? reply : "Agent 未返回有效响应", sessionId);
+
+        // 异步记录对话反馈（helpful 默认为 null，待用户后续评分）
+        searchAnalyticsService.recordFeedback(userId, request.getMessage(), "chat",
+                "agent", reply != null ? 1 : 0, null, sessionId);
+
         return ApiResponse.success(response);
     }
 
@@ -100,6 +107,9 @@ public class ChatController {
                                     .name("delta")
                                     .data(delta.getDelta()));
                         } else if (event.getType() == AgentEventType.AGENT_END) {
+                            // 异步记录对话反馈
+                            searchAnalyticsService.recordFeedback(userId, request.getMessage(),
+                                    "chat_stream", "agent", 1, null, sessionId);
                             emitter.send(SseEmitter.event()
                                     .name("done")
                                     .data("completed"));
@@ -123,6 +133,9 @@ public class ChatController {
                 })
                 .doOnComplete(() -> {
                     try {
+                        // 异步记录对话反馈（兜底：若未触发 AGENT_END 事件）
+                        searchAnalyticsService.recordFeedback(userId, request.getMessage(),
+                                "chat_stream", "agent", 1, null, sessionId);
                         emitter.send(SseEmitter.event()
                                 .name("done")
                                 .data("completed"));

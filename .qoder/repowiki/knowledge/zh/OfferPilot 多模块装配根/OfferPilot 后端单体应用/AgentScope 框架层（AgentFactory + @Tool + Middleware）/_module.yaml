@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: backend_api/agent_framework
+title: AgentScope 框架层（AgentFactory + @Tool + Middleware）
+scope:
+    - src/main/java/com/tutorial/offerpilot/agent/
+source_files: []
+depends_on: []
+related_to: []

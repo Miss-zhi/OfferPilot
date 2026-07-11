@@ -18,12 +18,19 @@ import com.tutorial.offerpilot.service.UserModelService;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ModelCreationContext;
 import io.agentscope.core.model.ModelRegistry;
+import io.agentscope.core.permission.PermissionBehavior;
+import io.agentscope.core.permission.PermissionContextState;
+import io.agentscope.core.permission.PermissionMode;
+import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -63,6 +70,7 @@ public class AgentFactory {
     private final ResumeEvaluateTool resumeEvaluateTool;
     private final ResumeParseTool resumeParseTool;
     private final SalaryTool salaryTool;
+    private final SmartSearchTool smartSearchTool;
 
     /** Caffeine 有界缓存：最多 MAX_AGENTS 个 HarnessAgent，EVICT_MINUTES 分钟未访问自动淘汰 */
     private final Cache<String, HarnessAgent> agentPool = Caffeine.newBuilder()
@@ -87,7 +95,8 @@ public class AgentFactory {
                         ResourceSearchTool resourceSearchTool,
                         ResumeEvaluateTool resumeEvaluateTool,
                         ResumeParseTool resumeParseTool,
-                        SalaryTool salaryTool) {
+                        SalaryTool salaryTool,
+                        SmartSearchTool smartSearchTool) {
         this.properties = properties;
         this.userMemoryService = userMemoryService;
         this.userModelService = userModelService;
@@ -104,6 +113,7 @@ public class AgentFactory {
         this.resumeEvaluateTool = resumeEvaluateTool;
         this.resumeParseTool = resumeParseTool;
         this.salaryTool = salaryTool;
+        this.smartSearchTool = smartSearchTool;
     }
 
     /**
@@ -122,19 +132,40 @@ public class AgentFactory {
         // 2. 按优先级选择模型: 用户私有 > 用户默认 > 全局默认 > application.yml 兜底
         Model model = resolveModel(userId);
 
-        // 3. 系统提示词
+        // 3. 系统提示词（调度中心）
         String sysPrompt = buildSystemPrompt();
 
         // 4. 中间件（每次构建新实例以确保线程安全统计）
         TokenMonitorMiddleware tokenMonitor = new TokenMonitorMiddleware();
         CostControlMiddleware costControl = new CostControlMiddleware();
 
-        // 5. 构建 HarnessAgent
+        // 5. Permission
+        PermissionContextState perms = buildPermissions();
+
+        // 6. 定义 7 个子 Agent
+        SubagentDeclaration resumeAgent = buildResumeAgent();
+        SubagentDeclaration techEvalAgent = buildTechEvalAgent();
+        SubagentDeclaration exprEvalAgent = buildExprEvalAgent();
+        SubagentDeclaration mockAgent = buildMockAgent();
+        SubagentDeclaration companyAgent = buildCompanyAgent();
+        SubagentDeclaration studyAgent = buildStudyAgent();
+        SubagentDeclaration salaryAgent = buildSalaryAgent();
+
+        // 7. 构建 HarnessAgent
         HarnessAgent agent = HarnessAgent.builder()
                 .name("offerpilot_" + userId)
                 .sysPrompt(sysPrompt)
                 .model(model)
                 .toolkit(toolkit)
+                .workspace(Path.of("./workspace"))
+                .subagent(resumeAgent)
+                .subagent(techEvalAgent)
+                .subagent(exprEvalAgent)
+                .subagent(mockAgent)
+                .subagent(companyAgent)
+                .subagent(studyAgent)
+                .subagent(salaryAgent)
+                .permissionContext(perms)
                 .middleware(tokenMonitor)
                 .middleware(costControl)
                 .enablePlanMode()
@@ -189,6 +220,10 @@ public class AgentFactory {
                 .tool(resourceSearchTool)
                 .group("knowledge_retrieval")
                 .apply();
+        toolkit.registration()
+                .tool(smartSearchTool)
+                .group("knowledge_retrieval")
+                .apply();
 
         // ---- 分组 2: resume_analysis ----
         toolkit.registration()
@@ -239,33 +274,192 @@ public class AgentFactory {
      */
     private String buildSystemPrompt() {
         return """
-                You are OfferPilot, a professional AI career coach and interview assistant.
+                You are OfferPilot 面试诊断助手的调度中心。
 
-                Your responsibilities:
-                1. Help users prepare for job interviews with personalized guidance
-                2. Analyze and improve resumes with actionable feedback
-                3. Conduct mock interviews and evaluate answers
-                4. Provide company-specific interview insights and salary data
-                5. Track learning progress and suggest improvement areas
+                【你的唯一职责】理解用户需求，分派任务给子 Agent，整合结果回复用户。
+                【严禁行为】你绝对不能直接调用任何业务工具（search_questions、analyze_answer、
+                           parse_resume 等）。你的工具箱中只有 spawn/resume_subagent 和
+                           web_search。所有业务操作必须通过子 Agent 完成。
 
-                Guidelines:
-                - Be professional, encouraging, and constructive
-                - Use tools to search for relevant information before answering
-                - For complex tasks, use plan_enter to design a plan first, then execute
-                - Maintain context across multi-turn conversations
-                - Respect user privacy and confidentiality
+                子 Agent 分派指南：
+                - 简历分析/优化 → spawn resume_coach
+                - 面试回答分析/评分 → spawn tech_evaluator + expression_evaluator（并行）
+                - 模拟面试练习 → spawn mock_interviewer
+                - 公司面试情报 → spawn company_researcher
+                - 学习计划/进度 → spawn study_planner
+                - 薪资查询/offer对比/谈判策略 → spawn salary_advisor
+                - 通用知识问答（无匹配子Agent时） → 调用 web_search 从互联网获取信息
+
+                调度规则：
+                1. 你只能使用 spawn（创建子Agent任务）和 resume（恢复子Agent任务）。
+                2. 子 Agent 返回结果后，用自然语言整合回复用户，不暴露内部调度过程。
+                3. 如果用户意图跨越多个子Agent领域，按优先级依次 spawn。
+                4. 绝不绕过子Agent直接调用业务工具——即使你知道答案也要走子Agent流程。
 
                 IMPORTANT — Tool output interpretation:
                 - When you call `generate_next_question`, it returns guidance (not a ready question).
-                  You MUST read the guidance and generate an appropriate interview question yourself,
-                  based on the role, category, difficulty, and context provided.
                 - When you call `analyze_answer`, it returns the raw Q&A plus evaluation guidance.
-                  You MUST generate the actual scores, highlights, weaknesses, and suggestions yourself.
                 - When you call `evaluate_resume`, it returns the resume text plus evaluation guidance.
-                  You MUST generate the actual score, strengths, weaknesses, and suggestions yourself.
                 - For all guidance-based tools, never echo the raw guidance to the user.
-                  Always transform it into natural, polished output.
                 """.stripIndent();
+    }
+
+    // ================================================================
+    // 子 Agent 声明
+    // ================================================================
+
+    private SubagentDeclaration buildResumeAgent() {
+        return SubagentDeclaration.builder()
+                .name("resume_coach")
+                .description("简历诊断顾问。当用户上传简历、要求简历优化时调用。")
+                .inlineAgentsBody("""
+                        你是一个资深 HR 顾问，有 10 年简历筛选经验。
+                        你的职责：
+                        1. 调用 parse_resume 解析简历
+                        2. 调用 evaluate_resume 评估质量
+                        3. 如果有目标 JD，检索该岗位高频考点，对比简历技能覆盖度
+                        4. 给出具体、可操作的优化建议
+                        语气专业但友善。""")
+                .tools(List.of("parse_resume", "evaluate_resume", "search_questions"))
+                .build();
+    }
+
+    private SubagentDeclaration buildTechEvalAgent() {
+        return SubagentDeclaration.builder()
+                .name("tech_evaluator")
+                .description("技术评估专家。当需要分析候选人的技术面试回答时调用。")
+                .inlineAgentsBody("""
+                        你是一个严格但公正的技术面试官，阿里 P7 级别。
+                        1. 调用 search_answers 检索优秀答案和评分标准
+                        2. 调用 analyze_answer 评估候选人的回答
+                        3. 逐条对比，指出覆盖了哪些得分点、遗漏了哪些
+                        评估要客观，好的地方说好，不好的地方说不好。""")
+                .tools(List.of("search_answers", "analyze_answer", "search_questions"))
+                .build();
+    }
+
+    private SubagentDeclaration buildExprEvalAgent() {
+        return SubagentDeclaration.builder()
+                .name("expression_evaluator")
+                .description("表达评估专家。当需要分析候选人的表达逻辑、沟通技巧时调用。")
+                .inlineAgentsBody("""
+                        你是一个沟通技巧教练。
+                        1. 分析回答的结构——是否有清晰的总分结构、是否用了 STAR 法则
+                        2. 检查口头禅和废话密度
+                        3. 评估时间分配——核心观点是否在前 30 秒内给出
+                        关注表达方式，不关注技术内容。""")
+                .tools(List.of("analyze_answer"))
+                .build();
+    }
+
+    private SubagentDeclaration buildMockAgent() {
+        return SubagentDeclaration.builder()
+                .name("mock_interviewer")
+                .description("模拟面试官。当用户想进行模拟面试练习时调用。")
+                .inlineAgentsBody("""
+                        你现在是一个面试官，正在面试这位候选人。
+                        1. 调用 generate_next_question 获取题目
+                        2. 用自然的方式提问，像真实面试官一样
+                        3. 候选人回答后，根据回答质量决定是否追问
+                        4. 每 3-4 题后给一个简短反馈
+                        5. 面试结束（5-8 题后）给出总体评价
+                        保持面试官的专业感，适当给压力。""")
+                .tools(List.of("generate_next_question", "search_answers", "analyze_answer"))
+                .build();
+    }
+
+    private SubagentDeclaration buildCompanyAgent() {
+        return SubagentDeclaration.builder()
+                .name("company_researcher")
+                .description("公司面试情报调研员。当用户想了解目标公司的面试情况时调用。")
+                .inlineAgentsBody("""
+                        你是一个面试情报分析师。
+                        1. 调用 search_company_interviews 检索目标公司的面试情报
+                        2. 调用 search_questions 检索高频考点的具体题目
+                        3. 如果以上两个工具返回的结果不足或为空，
+                           调用 web_search 从互联网搜索最新的面试经验
+                        4. 整合成'面试情报卡'，标注数据来源（知识库/互联网）
+                        信息要准确，标注数据来源和时间。""")
+                .tools(List.of("search_company_interviews", "search_questions", "web_search"))
+                .build();
+    }
+
+    private SubagentDeclaration buildStudyAgent() {
+        return SubagentDeclaration.builder()
+                .name("study_planner")
+                .description("学习规划师。当用户想制定学习计划、查看学习进度时调用。")
+                .inlineAgentsBody("""
+                        你是一个学习计划规划师。
+                        1. 调用 track_progress 查看用户的学习数据
+                        2. 识别反复出现的薄弱点
+                        3. 按优先级排序
+                        4. 调用 search_resources 匹配学习资源
+                        5. 如果知识库中学习资源不足，调用 web_search 从互联网搜索
+                           相关教程、文档和练习材料
+                        6. 生成周学习计划
+                        计划要实际可执行，每天 1-2 小时为宜。""")
+                .tools(List.of("track_progress", "search_resources", "search_questions", "web_search"))
+                .build();
+    }
+
+    private SubagentDeclaration buildSalaryAgent() {
+        return SubagentDeclaration.builder()
+                .name("salary_advisor")
+                .description("薪资谈判顾问。当用户拿到 offer、需要对比分析、薪资谈判策略时调用。")
+                .inlineAgentsBody("""
+                        你是一个资深 HR 和职业规划顾问，有 15 年招聘和薪资谈判经验。
+                        你的职责：
+                        1. 调用 search_salary 检索目标公司+岗位的薪资范围
+                        2. 如果本地薪资数据库无记录，调用 web_search 从互联网搜索
+                           该公司和岗位的最新薪资行情
+                        3. 调用 compare_offers 对比多个 offer 的综合待遇
+                        4. 调用 generate_negotiation_script 生成谈判话术
+                        5. 结合市场数据给出客观建议
+                        薪资信息敏感，回复要专业、客观、有数据支撑。""")
+                .tools(List.of("search_salary", "compare_offers", "generate_negotiation_script", "web_search"))
+                .build();
+    }
+
+    // ================================================================
+    // Permission 配置
+    // ================================================================
+
+    private PermissionContextState buildPermissions() {
+        return PermissionContextState.builder()
+                .mode(PermissionMode.ACCEPT_EDITS)
+                .addAllowRule("parse_resume",
+                        new PermissionRule("parse_resume", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("evaluate_resume",
+                        new PermissionRule("evaluate_resume", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("search_questions",
+                        new PermissionRule("search_questions", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("search_answers",
+                        new PermissionRule("search_answers", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("search_company_interviews",
+                        new PermissionRule("search_company_interviews", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("analyze_answer",
+                        new PermissionRule("analyze_answer", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("transcribe_audio",
+                        new PermissionRule("transcribe_audio", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("generate_next_question",
+                        new PermissionRule("generate_next_question", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("search_resources",
+                        new PermissionRule("search_resources", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("track_progress",
+                        new PermissionRule("track_progress", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("search_salary",
+                        new PermissionRule("search_salary", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("compare_offers",
+                        new PermissionRule("compare_offers", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("generate_negotiation_script",
+                        new PermissionRule("generate_negotiation_script", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("smart_search",
+                        new PermissionRule("smart_search", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("web_search",
+                        new PermissionRule("web_search", null, PermissionBehavior.ALLOW, "联网搜索直接放行"))
+                .addDenyRule("delete_user_data",
+                        new PermissionRule("delete_user_data", null, PermissionBehavior.DENY, "userSettings"))
+                .build();
     }
 
     /**

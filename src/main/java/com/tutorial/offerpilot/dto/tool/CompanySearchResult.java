@@ -26,5 +26,6 @@ public class CompanySearchResult {
         private String summary;
         private String difficulty;
         private Float relevanceScore;
+        private String source;
     }
 }

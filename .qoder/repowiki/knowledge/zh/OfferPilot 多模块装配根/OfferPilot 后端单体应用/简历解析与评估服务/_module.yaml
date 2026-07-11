@@ -7,6 +7,4 @@ scope:
     - src/main/java/com/tutorial/offerpilot/dto/tool/ResumeEvaluateResult.java
 source_files: []
 depends_on: []
-related_to:
-    - path: backend_api/salary_negotiation
-    - path: frontend_webapp/resume_feature
+related_to: []

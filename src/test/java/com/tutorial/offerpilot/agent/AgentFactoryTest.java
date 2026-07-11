@@ -81,6 +81,8 @@ class AgentFactoryTest {
     private ResumeParseTool resumeParseTool;
     @Mock
     private SalaryTool salaryTool;
+    @Mock
+    private SmartSearchTool smartSearchTool;
 
     @InjectMocks
     private AgentFactory agentFactory;
@@ -256,8 +258,8 @@ class AgentFactoryTest {
                 assertNotNull(prompt);
                 assertFalse(prompt.isBlank());
                 assertTrue(prompt.contains("OfferPilot"), "提示词应包含 OfferPilot 角色名");
-                assertTrue(prompt.contains("career coach"), "提示词应包含职业教练描述");
-                assertTrue(prompt.contains("plan_enter"), "提示词应提及 plan mode");
+                assertTrue(prompt.contains("调度中心"), "提示词应包含调度中心角色描述");
+                assertTrue(prompt.contains("子 Agent"), "提示词应包含子 Agent 分派指南");
             }
         }
 

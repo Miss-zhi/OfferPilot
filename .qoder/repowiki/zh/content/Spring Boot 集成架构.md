@@ -15,6 +15,8 @@
 - [ModelConfigRepository.java](file://src/main/java/com/tutorial/offerpilot/repository/ModelConfigRepository.java)
 - [AgentScopeProperties.java](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java)
 - [EmbeddingService.java](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java)
+- [TranscriptionService.java](file://src/main/java/com/tutorial/offerpilot/service/TranscriptionService.java)
+- [AudioTranscribeTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/AudioTranscribeTool.java)
 - [MilvusConfig.java](file://src/main/java/com/tutorial/offerpilot/config/MilvusConfig.java)
 - [MilvusProperties.java](file://src/main/java/com/tutorial/offerpilot/config/MilvusProperties.java)
 - [RedisConfig.java](file://src/main/java/com/tutorial/offerpilot/config/RedisConfig.java)
@@ -22,6 +24,7 @@
 - [WebConfig.java](file://src/main/java/com/tutorial/offerpilot/config/WebConfig.java)
 - [AsyncConfig.java](file://src/main/java/com/tutorial/offerpilot/config/AsyncConfig.java)
 - [application.yml](file://src/main/resources/application.yml)
+- [pom.xml](file://pom.xml)
 - [docker-compose.yml](file://docker-compose.yml)
 - [.gitignore](file://.gitignore)
 - [JwtTokenProvider.java](file://src/main/java/com/tutorial/offerpilot/security/JwtTokenProvider.java)
@@ -29,23 +32,22 @@
 
 ## 更新摘要
 **变更内容**   
-- 新增完整的 LLM 模型配置管理系统，支持 8 家主流 Provider（DashScope、OpenAI、DeepSeek、SiliconFlow、Volcengine、Anthropic Claude、Google Gemini、Ollama）
-- AgentFactory 实现动态模型解析与优先级选择算法（用户私有 > 用户默认 > 全局默认 > application.yml 兜底）
-- 新增 ModelConfigService、UserModelService、ApiKeyEncryption 服务及对应的 REST 控制器
-- 增强 API 密钥安全管理，支持 AES 加密存储和脱敏显示
-- 完善模型列表自动拉取功能，支持多种 API 格式响应解析
-- **新增** agentscope.embedding.* 独立配置段，支持 EMBEDDING_API_KEY 环境变量注入
-- **新增** agentscope.transcription.* 独立配置段，支持 TRANSCRIPTION_API_KEY 环境变量注入
-- **增强** .env 文件安全处理和环境配置策略
+- **新增** 完整的音频转写服务集成，支持 DashScope Paraformer 语音转文本功能
+- **增强** Provider 验证逻辑，实现 OpenAI 兼容 Provider 的动态映射机制
+- **改进** 配置架构，提供独立的 transcription 配置段与 LLM 模型配置解耦
+- **补齐** 4个缺失的 AgentScope Model Extension Maven 依赖，支持全部8家预设 Provider
+- **优化** API Key 优先级策略，支持环境变量注入和多层回退机制
 
 ## Agent 组件 Bean 注入方式
 - 工厂类与工具注入模式
   - AgentFactory 使用 @Component 注册为 Spring Bean，并通过构造器一次性注入所有依赖：配置属性、用户记忆服务、用户模型服务、模型配置服务、API 密钥加密服务以及全部 11 个 @Tool Bean。
   - 在构建 Toolkit 时，将工具按业务域分组注册到四个组：knowledge_retrieval、resume_analysis、interview、utility，并统一调用 registerMetaTool 注册元工具。
+  - **新增** AudioTranscribeTool 作为面试工具组的一部分，集成语音转写功能。
 - Caffeine 缓存的 Agent 池
   - 使用 Caffeine 维护一个有界缓存 agentPool，最大容量 500，未访问超过 30 分钟自动淘汰；通过 getOrCreateAgent(userId) 实现"按用户维度"的 HarnessAgent 复用与按需创建。
 - RuntimeContext 的构建与传递路径
   - AgentFactory 现在集成了动态模型解析能力，通过 UserModelService 和 ModelConfigService 获取用户偏好和全局配置，结合 ApiKeyEncryption 解密 API Key，最终通过 ModelRegistry.resolve() 动态创建 Model 实例。
+  - **增强** 实现了 OpenAI 兼容 Provider 的动态映射，支持 deepseek、siliconflow、volcengine 等 Provider 自动映射到 openai 前缀。
 
 ```mermaid
 classDiagram
@@ -54,6 +56,7 @@ class AgentFactory {
 -buildToolkit() Toolkit
 -buildSystemPrompt() String
 -resolveModel(userId) Model
+-mapToAgentScopeProvider(provider) String
 -agentPool : Cache~String, HarnessAgent~
 -properties : AgentScopeProperties
 -userMemoryService : UserMemoryService
@@ -80,21 +83,35 @@ class ApiKeyEncryption {
 +decrypt(cipherText) String
 +mask(apiKey) String
 }
+class TranscriptionService {
++transcribe(filePath) String
+-inferMimeType(fileName) String
+}
+class AudioTranscribeTool {
++transcribe(file_path) TranscribeResult
+-estimateDuration(text) int
+-countQuestions(text) int
+}
 AgentFactory --> UserModelService : "获取用户模型配置"
 AgentFactory --> ModelConfigService : "获取全局默认配置"
 AgentFactory --> ApiKeyEncryption : "解密API密钥"
+AudioTranscribeTool --> TranscriptionService : "调用转写服务"
 ```
 
 **图表来源**   
 - [AgentFactory.java:66-98](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L66-L98)
 - [AgentFactory.java:265-298](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L265-L298)
+- [AgentFactory.java:320-325](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L320-L325)
 - [UserModelService.java:153-168](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java#L153-L168)
-- [ModelConfigService.java:200-202](file://src/main/java/com/tutorial/offerpilot/service/ModelConfigService.java#L200-L202)
+- [ModelConfigService.java:200-202](file://src/main/java/com/tutorial/offerpilot/service/ModelConfigService.java#L200-202)
 - [ApiKeyEncryption.java:37-62](file://src/main/java/com/tutorial/offerpilot/service/ApiKeyEncryption.java#L37-L62)
+- [TranscriptionService.java:33-53](file://src/main/java/com/tutorial/offerpilot/service/TranscriptionService.java#L33-L53)
+- [AudioTranscribeTool.java:27-56](file://src/main/java/com/tutorial/offerpilot/agent/tool/AudioTranscribeTool.java#L27-L56)
 
 **章节来源**   
 - [AgentFactory.java:66-98](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L66-L98)
 - [AgentFactory.java:265-298](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L265-L298)
+- [AgentFactory.java:320-325](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L320-L325)
 
 ## 配置类扫描路径
 - 包路径：com.tutorial.offerpilot.config
@@ -113,6 +130,7 @@ AgentFactory --> ApiKeyEncryption : "解密API密钥"
 **章节来源**   
 - [AgentScopeProperties.java:10-17](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L10-17)
 - [AgentScopeProperties.java:53-81](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L53-81)
+- [AgentScopeProperties.java:69-83](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L69-83)
 - [MilvusConfig.java:18-29](file://src/main/java/com/tutorial/offerpilot/config/MilvusConfig.java#L18-29)
 - [MilvusProperties.java:10-20](file://src/main/java/com/tutorial/offerpilot/config/MilvusProperties.java#L10-20)
 - [RedisConfig.java:14-17](file://src/main/java/com/tutorial/offerpilot/config/RedisConfig.java#L14-17)
@@ -121,7 +139,7 @@ AgentFactory --> ApiKeyEncryption : "解密API密钥"
 - [AsyncConfig.java:14-31](file://src/main/java/com/tutorial/offerpilot/config/AsyncConfig.java#L14-31)
 
 ## LLM 模型初始化与动态解析
-- **更新** 系统现已支持多 Provider 的动态模型解析，实现了基于优先级的模型选择算法
+- **更新** 系统现已支持多 Provider 的动态模型解析，实现了基于优先级的模型选择算法，并增强了 OpenAI 兼容 Provider 的支持
 
 ### 多 Provider 预设配置
 系统内置了 8 家主流 LLM Provider 的预设配置：
@@ -138,7 +156,7 @@ AgentFactory --> ApiKeyEncryption : "解密API密钥"
 | Ollama (本地) | ollama | OpenAI | None | http://localhost:11434/v1 |
 
 ### 动态模型解析优先级算法
-AgentFactory 实现了四级优先级模型解析：
+AgentFactory 实现了四级优先级模型解析，并新增了 OpenAI 兼容 Provider 的动态映射：
 
 ```mermaid
 sequenceDiagram
@@ -160,6 +178,7 @@ ModelConfigSvc-->>Factory : 返回全局默认配置
 end
 Factory->>Encryption : decrypt(apiKey)
 Encryption-->>Factory : 返回明文API密钥
+Factory->>Factory : mapToAgentScopeProvider(provider)
 Factory->>Registry : resolve(provider : modelName, context)
 Registry-->>Factory : 返回Model实例
 Factory-->>Client : 返回HarnessAgent
@@ -167,9 +186,17 @@ Factory-->>Client : 返回HarnessAgent
 
 **图表来源**   
 - [AgentFactory.java:265-298](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L265-L298)
+- [AgentFactory.java:320-325](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L320-L325)
 - [UserModelService.java:153-168](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java#L153-L168)
-- [ModelConfigService.java:200-202](file://src/main/java/com/tutorial/offerpilot/service/ModelConfigService.java#L200-L202)
+- [ModelConfigService.java:200-202](file://src/main/java/com/tutorial/offerpilot/service/ModelConfigService.java#L200-202)
 - [ApiKeyEncryption.java:52-62](file://src/main/java/com/tutorial/offerpilot/service/ApiKeyEncryption.java#L52-L62)
+
+### OpenAI 兼容 Provider 映射机制
+**新增** 系统实现了 OpenAI 兼容 Provider 的动态映射逻辑：
+
+- **映射规则**：deepseek、siliconflow、volcengine 三个 Provider 自动映射为 "openai"
+- **实现原理**：这些 Provider 虽然使用 OpenAI 兼容 API，但 AgentScope 框架中没有独立的 SPI ModelProvider
+- **解决方案**：通过 mapToAgentScopeProvider() 方法将非标准 Provider 映射为标准 openai 前缀，配合自定义 baseUrl 实现兼容
 
 ### 模型列表自动拉取机制
 系统支持从各 Provider API 自动拉取可用模型列表：
@@ -180,7 +207,8 @@ Factory-->>Client : 返回HarnessAgent
 
 **章节来源**   
 - [ProviderPreset.java:13-101](file://src/main/java/com/tutorial/offerpilot/enums/ProviderPreset.java#L13-101)
-- [AgentFactory.java:265-298](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L265-L298)
+- [AgentFactory.java:265-298](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L265-298)
+- [AgentFactory.java:320-325](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L320-325)
 - [ModelListFetcher.java:44-60](file://src/main/java/com/tutorial/offerpilot/service/ModelListFetcher.java#L44-60)
 
 ## API 密钥安全配置管理
@@ -225,7 +253,7 @@ G --> H["AgentFactory 构建 Model"]
 - [application.yml:63-64](file://src/main/resources/application.yml#L63-64)
 
 ## 嵌入与转写服务独立配置
-- **新增** 系统现在支持 Embedding 和语音转写服务的独立配置，与 LLM 模型配置解耦
+- **更新** 系统现在支持 Embedding 和语音转写服务的独立配置，与 LLM 模型配置完全解耦
 
 ### Embedding 独立配置
 当 LLM Provider 切换到不支持 Embedding 的服务商（如 DeepSeek）时，可以通过独立的 embedding 配置指定不同的 Embedding Provider：
@@ -237,7 +265,7 @@ G --> H["AgentFactory 构建 Model"]
 | agentscope.embedding.base-url | Embedding API Base URL | DashScope Embedding 端点 | - |
 
 ### 语音转写独立配置
-系统支持独立的语音转写配置，默认使用 DashScope Paraformer：
+**新增** 系统支持独立的语音转写配置，默认使用 DashScope Paraformer：
 
 | 配置项 | 说明 | 默认值 | 环境变量支持 |
 | --- | --- | --- | --- |
@@ -258,7 +286,9 @@ F --> |否| H["回退到 model.api-key"]
 
 **图表来源**   
 - [EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-58)
+- [TranscriptionService.java:33-53](file://src/main/java/com/tutorial/offerpilot/service/TranscriptionService.java#L33-53)
 - [AgentScopeProperties.java:53-81](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L53-81)
+- [AgentScopeProperties.java:69-83](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L69-83)
 
 ### 环境变量注入示例
 ```bash
@@ -274,8 +304,50 @@ DASHSCOPE_API_KEY=sk-dashscope-shared-key
 
 **章节来源**   
 - [AgentScopeProperties.java:53-81](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L53-81)
+- [AgentScopeProperties.java:69-83](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L69-83)
 - [EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-58)
+- [TranscriptionService.java:33-53](file://src/main/java/com/tutorial/offerpilot/service/TranscriptionService.java#L33-53)
 - [application.yml:57-71](file://src/main/resources/application.yml#L57-71)
+
+## 音频转写服务集成
+**新增** 系统集成了完整的音频转写功能，支持面试录音文件的自动转写
+
+### TranscriptionService 核心功能
+- **语音转文本**：调用 DashScope Paraformer API 进行高质量语音识别
+- **多格式支持**：支持 mp3、wav、m4a、flac、ogg、webm 等常见音频格式
+- **智能超时**：连接超时 30 秒，读取超时 120 秒，适应长音频处理
+- **错误处理**：完善的异常处理和日志记录机制
+
+### AudioTranscribeTool 工具集成
+- **Agent 工具**：作为面试工具组的一部分，供 AI Agent 直接调用
+- **结果分析**：自动估算音频时长和统计问题数量
+- **用户体验**：友好的错误提示和进度反馈
+
+### 转写流程架构
+```mermaid
+sequenceDiagram
+participant User as "用户"
+participant Tool as "AudioTranscribeTool"
+participant Service as "TranscriptionService"
+participant DashScope as "DashScope API"
+User->>Tool : transcribe_audio(file_path)
+Tool->>Tool : 验证文件存在性
+Tool->>Service : transcribe(filePath)
+Service->>Service : 推断MIME类型
+Service->>DashScope : POST /audio/transcriptions
+DashScope-->>Service : 返回转写文本
+Service-->>Tool : 返回转写结果
+Tool->>Tool : 估算时长和统计问题
+Tool-->>User : 返回结构化结果
+```
+
+**图表来源**   
+- [AudioTranscribeTool.java:27-56](file://src/main/java/com/tutorial/offerpilot/agent/tool/AudioTranscribeTool.java#L27-L56)
+- [TranscriptionService.java:61-106](file://src/main/java/com/tutorial/offerpilot/service/TranscriptionService.java#L61-106)
+
+**章节来源**   
+- [TranscriptionService.java:1-122](file://src/main/java/com/tutorial/offerpilot/service/TranscriptionService.java#L1-122)
+- [AudioTranscribeTool.java:1-86](file://src/main/java/com/tutorial/offerpilot/agent/tool/AudioTranscribeTool.java#L1-86)
 
 ## 管理员模型配置管理接口
 - **新增** 完整的模型配置 CRUD 管理和 Provider 预设管理
@@ -351,7 +423,7 @@ Agent-->>Client : 返回最终结果
 - [AgentFactory.java:120-133](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L120-133)
 
 ## 环境配置与安全最佳实践
-- **新增** 完整的环境变量管理和安全配置指南
+- **更新** 完整的环境变量管理和安全配置指南，新增了音频转写相关的安全配置
 
 ### .env 文件安全处理
 项目采用严格的安全策略处理敏感配置文件：
@@ -381,8 +453,23 @@ H --> I
 - **环境变量注入**：所有敏感配置通过环境变量注入，支持 Docker 容器化部署
 - **密钥轮换支持**：支持运行时环境变量更新，无需重启应用
 - **多环境隔离**：通过 Spring Profiles 实现开发、测试、生产环境隔离
+- **新增** 音频转写 API Key 独立管理，支持与 LLM API Key 分离
+
+### Maven 依赖完整性
+**新增** 系统已补齐所有必要的 AgentScope Model Extension 依赖：
+
+| 依赖模块 | 版本 | 用途 |
+| --- | --- | --- |
+| agentscope-core | 2.0.0-RC5 | AgentScope 核心框架 |
+| agentscope-harness | 2.0.0-RC5 | Agent 运行环境 |
+| agentscope-extensions-model-openai | 2.0.0-RC5 | OpenAI 兼容 Provider |
+| agentscope-extensions-model-dashscope | 2.0.0-RC5 | 阿里百炼 Provider |
+| agentscope-extensions-model-anthropic | 2.0.0-RC5 | Anthropic Claude Provider |
+| agentscope-extensions-model-gemini | 2.0.0-RC5 | Google Gemini Provider |
+| agentscope-extensions-model-ollama | 2.0.0-RC5 | Ollama 本地 Provider |
 
 **章节来源**   
 - [.gitignore:21-22](file://.gitignore#L21-22)
 - [application.yml:34-71](file://src/main/resources/application.yml#L34-71)
 - [docker-compose.yml:21-25](file://docker-compose.yml#L21-25)
+- [pom.xml:130-165](file://pom.xml#L130-165)

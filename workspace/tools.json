@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "web-search": {
+      "transport": "http",
+      "url": "http://localhost:3000/mcp",
+      "env": {
+        "DEFAULT_SEARCH_ENGINE": "bing"
+      }
+    }
+  }
+}

@@ -58,6 +58,9 @@ class KnowledgeBaseServiceTest {
     @Mock private InterviewQuestionRepository questionRepo;
     @Mock private FileService fileService;
     @Mock private DocumentIngestionService ingestionService;
+    @Mock private WebSearchFallbackService webSearchFallbackService;
+    @Mock private PersonalizedRankService personalizedRankService;
+    @Mock private SearchAnalyticsService searchAnalyticsService;
 
     private KnowledgeBaseService kbService;
 
@@ -71,7 +74,8 @@ class KnowledgeBaseServiceTest {
     void setUp() {
         kbService = new KnowledgeBaseService(kbRepo, docRepo, chunkRepo,
                 milvusClient, kbConverter, vectorSearchService, questionRepo,
-                fileService, ingestionService);
+                fileService, ingestionService, webSearchFallbackService,
+                personalizedRankService, searchAnalyticsService);
 
         normalUser = new User("testuser", "pass", List.of(new SimpleGrantedAuthority("ROLE_USER")));
         adminUser = new User("admin", "pass", List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
@@ -274,7 +278,8 @@ class KnowledgeBaseServiceTest {
             when(kbRepo.findByVisibility("PUBLIC")).thenReturn(List.of(kb));
             SearchTestResponse searchResp = new SearchTestResponse();
             searchResp.setHits(Collections.emptyList());
-            when(vectorSearchService.search(anyString(), eq("算法"), eq(10))).thenReturn(Collections.emptyList());
+            when(vectorSearchService.searchMultiCollection(anyList(), eq("算法"), eq(10), eq(20), isNull()))
+                    .thenReturn(Collections.emptyList());
 
             InterviewQuestion q = new InterviewQuestion();
             q.setQuestionId("q-001");

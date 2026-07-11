@@ -16,6 +16,4 @@ scope:
     - src/main/java/com/tutorial/offerpilot/repository/ModelNameRepository.java
 source_files: []
 depends_on: []
-related_to:
-    - path: frontend_webapp/model_admin_page
-    - path: frontend_webapp/user_settings_page
+related_to: []

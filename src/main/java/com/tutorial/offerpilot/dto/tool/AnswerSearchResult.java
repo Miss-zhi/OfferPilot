@@ -26,5 +26,6 @@ public class AnswerSearchResult {
         private String answer;
         private String category;
         private Float relevanceScore;
+        private String source;
     }
 }

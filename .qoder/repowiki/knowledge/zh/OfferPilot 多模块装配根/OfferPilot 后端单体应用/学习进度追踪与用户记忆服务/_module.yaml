@@ -7,5 +7,4 @@ scope:
     - src/main/java/com/tutorial/offerpilot/dto/progress/
 source_files: []
 depends_on: []
-related_to:
-    - path: backend_api/interview_analysis
+related_to: []

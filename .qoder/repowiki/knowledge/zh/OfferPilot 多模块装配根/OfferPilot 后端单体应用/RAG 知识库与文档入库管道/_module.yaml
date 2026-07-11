@@ -9,5 +9,4 @@ scope:
     - src/main/java/com/tutorial/offerpilot/converter/KbConverter.java
 source_files: []
 depends_on: []
-related_to:
-    - path: frontend_webapp/knowledge_admin
+related_to: []

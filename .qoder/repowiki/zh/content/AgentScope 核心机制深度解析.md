@@ -6,6 +6,9 @@
 - [UserModelService.java](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java)
 - [AgentScopeProperties.java](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java)
 - [AppUser.java](file://src/main/java/com/tutorial/offerpilot/entity/AppUser.java)
+- [ProviderPreset.java](file://src/main/java/com/tutorial/offerpilot/enums/ProviderPreset.java)
+- [pom.xml](file://pom.xml)
+- [application.yml](file://src/main/resources/application.yml)
 - [QuestionSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/QuestionSearchTool.java)
 - [AnswerAnalyzeTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/AnswerAnalyzeTool.java)
 - [MockInterviewTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/MockInterviewTool.java)
@@ -15,10 +18,11 @@
 
 ## 更新摘要
 **变更内容**   
-- 新增智能模型解析逻辑，支持用户私有模型 > 用户默认模型 > 全局默认模型 > application.yml 回退的四级优先级
-- 引入 ModelCreationContext 动态模型实例化机制，通过 Agentscope ModelRegistry 实现运行时模型配置
-- 增强用户模型管理功能，支持私有模型配置和动态切换
-- 完善模型配置的安全处理，包括 API Key 加密解密和动态 baseUrl 支持
+- **新增智能 Provider 映射机制**：实现了 OpenAI 兼容 Provider（deepseek、siliconflow、volcengine）到 AgentScope openai provider 的自动映射
+- **增强 ModelRegistry 解析容错性**：添加了异常捕获和回退机制，确保模型解析失败时能优雅降级到 application.yml 配置
+- **补齐 8 个预设 Provider 依赖**：在 pom.xml 中补充了 dashscope、anthropic、gemini、ollama 四个缺失的 Model Extension 依赖
+- **修复默认配置**：将 application.yml 中的默认 provider 从 deepseek 改为 dashscope，model-name 从 deepseek-chat 改为 qwen-max
+- **完善依赖管理**：确保所有 8 个预设 Provider 都能被 ModelRegistry 正确解析和实例化
 
 ## 目录
 - ReActAgent 推理循环
@@ -26,6 +30,7 @@
 - 多 Agent 协作范式
 - Msg 消息流转路径
 - 智能模型解析与动态实例化
+- Provider 映射与依赖管理机制
 
 ## ReActAgent 推理循环
 - 推理循环要点
@@ -169,8 +174,9 @@ PrivateExists --> |否| CheckGlobal["查询全局默认模型<br/>modelConfigSer
 CheckGlobal --> GlobalExists{"全局默认存在？"}
 GlobalExists --> |是| UseGlobal["使用全局默认配置"]
 GlobalExists --> |否| UseFallback["使用 application.yml 兜底配置"]
-UsePrivate --> BuildContext["构建 ModelCreationContext"]
-UseGlobal --> BuildContext
+UsePrivate --> MapProvider["Provider映射<br/>mapToAgentScopeProvider()"]
+UseGlobal --> MapProvider
+MapProvider --> BuildContext["构建 ModelCreationContext"]
 BuildContext --> ResolveModel["ModelRegistry.resolve(modelId, context)"]
 ResolveModel --> Success{"解析成功？"}
 Success --> |是| ReturnModel["返回 Model 实例"]
@@ -209,7 +215,82 @@ FallbackResolve --> ReturnModel
 - **安全性**：API Key 加密存储，防止敏感信息泄露
 
 **章节来源**
-- [AgentFactory.java:262-298](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L262-L298)
-- [UserModelService.java:150-168](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java#L150-L168)
+- [AgentFactory.java:274-314](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L274-L314)
+- [UserModelService.java:160-175](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java#L160-L175)
 - [AppUser.java:47-53](file://src/main/java/com/tutorial/offerpilot/entity/AppUser.java#L47-L53)
-- [AgentScopeProperties.java:19-26](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L19-L26)
+- [AgentScopeProperties.java:22-29](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L22-L29)
+
+## Provider 映射与依赖管理机制
+
+### 智能 Provider 映射机制
+
+**新增** 实现了 OpenAI 兼容 Provider 的智能映射机制，解决了 AgentScope 框架中部分 Provider 缺少独立 SPI ModelProvider 的问题。
+
+#### Provider 映射规则
+```mermaid
+flowchart TD
+Input["输入 Provider<br/>deepseek/siliconflow/volcengine"] --> Check{"是否OpenAI兼容？"}
+Check --> |是| MapOpenAI["映射为 openai"]
+Check --> |否| KeepOriginal["保持原 Provider"]
+MapOpenAI --> Output["openai:modelName"]
+KeepOriginal --> Output
+Output --> Registry["ModelRegistry 解析"]
+```
+
+#### 核心实现细节
+
+**OpenAI 兼容 Provider 识别**
+- 定义了 `OPENAI_COMPATIBLE_PROVIDERS` 常量集合：`{"deepseek", "siliconflow", "volcengine"}`
+- 这些 Provider 虽然使用 OpenAI 兼容 API，但 AgentScope 框架中没有独立的 SPI Provider 实现
+- 通过 `mapToAgentScopeProvider()` 方法将这些 Provider 统一映射为 `"openai"`
+
+**Provider 映射方法**
+- `mapToAgentScopeProvider(String provider)`：根据输入 provider 返回对应的 AgentScope providerId
+- 对于 OpenAI 兼容 Provider，返回 `"openai"` 以复用 OpenAIModelProvider
+- 对于其他 Provider，直接返回原始 provider 名称
+
+**8 个预设 Provider 完整支持**
+- **DashScope**：阿里百炼，OpenAI 兼容，使用 agentscope-extensions-model-dashscope
+- **OpenAI**：官方 OpenAI，使用 agentscope-extensions-model-openai
+- **DeepSeek**：深度求索，OpenAI 兼容，映射到 openai
+- **SiliconFlow**：硅基流动，OpenAI 兼容，映射到 openai
+- **VolcEngine**：火山引擎，OpenAI 兼容，映射到 openai
+- **Anthropic**：Claude，非 OpenAI 兼容，使用 agentscope-extensions-model-anthropic
+- **Gemini**：Google Gemini，非 OpenAI 兼容，使用 agentscope-extensions-model-gemini
+- **Ollama**：本地部署，OpenAI 兼容，使用 agentscope-extensions-model-ollama
+
+### 依赖管理与容错机制
+
+**更新** 完善了 Maven 依赖管理和 ModelRegistry 解析的容错机制。
+
+#### Maven 依赖配置
+- 在 pom.xml 中补充了 4 个缺失的 AgentScope Model Extension 依赖：
+  - `agentscope-extensions-model-dashscope`
+  - `agentscope-extensions-model-anthropic`
+  - `agentscope-extensions-model-gemini`
+  - `agentscope-extensions-model-ollama`
+
+#### ModelRegistry 解析容错
+- 添加了异常捕获机制，当 `ModelRegistry.resolve(modelId, context)` 失败时自动回退
+- 记录详细的警告日志，包含原始 provider 信息和异常详情
+- 优雅降级到 application.yml 中的兜底配置，确保系统可用性
+
+#### 默认配置优化
+- 将 application.yml 中的默认 provider 从 `deepseek` 改为 `dashscope`
+- 将默认 model-name 从 `deepseek-chat` 改为 `qwen-max`
+- 使用 DashScope 作为默认提供商，提供更好的稳定性和兼容性
+
+### 依赖管理机制优势
+
+- **扩展性强**：新增 Provider 只需添加 Maven 依赖和可选的映射规则
+- **兼容性好**：OpenAI 兼容 Provider 自动复用现有实现
+- **容错性强**：解析失败时自动回退，不影响系统正常运行
+- **配置灵活**：支持运行时动态切换不同的 Provider 和模型
+- **维护简单**：统一的映射机制降低了维护复杂度
+
+**章节来源**
+- [AgentFactory.java:45-46](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L45-46)
+- [AgentFactory.java:320-325](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L320-L325)
+- [pom.xml:146-165](file://pom.xml#L146-L165)
+- [application.yml:36-39](file://src/main/resources/application.yml#L36-L39)
+- [ProviderPreset.java:13-101](file://src/main/java/com/tutorial/offerpilot/enums/ProviderPreset.java#L13-L101)

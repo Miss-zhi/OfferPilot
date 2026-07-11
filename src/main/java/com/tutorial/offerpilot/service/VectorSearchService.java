@@ -39,8 +39,21 @@ public class VectorSearchService {
      * @return 检索结果列表，按相似度降序排列
      */
     public List<SearchTestResponse.SearchHit> search(String collectionName, String query, int topK) {
+        return search(collectionName, query, topK, null);
+    }
+
+    /**
+     * 在指定 Collection 中执行向量检索（支持元数据过滤）。
+     *
+     * @param collectionName Milvus Collection 名称
+     * @param query          查询文本
+     * @param topK           返回 Top-K 个最相似结果
+     * @param filterExpr     Milvus 标量过滤表达式，如 "category == \"专业技能\""，为 null 时不过滤
+     * @return 检索结果列表，按相似度降序排列
+     */
+    public List<SearchTestResponse.SearchHit> search(String collectionName, String query, int topK, String filterExpr) {
         float[] queryVector = embeddingService.embed(query);
-        return searchByVector(collectionName, queryVector, topK);
+        return searchByVector(collectionName, queryVector, topK, filterExpr);
     }
 
     /**
@@ -55,6 +68,21 @@ public class VectorSearchService {
      */
     public List<SearchTestResponse.SearchHit> searchMultiCollection(
             List<String> collectionNames, String query, int topK, int finalTopK) {
+        return searchMultiCollection(collectionNames, query, topK, finalTopK, null);
+    }
+
+    /**
+     * 在多个 Collection 中执行向量检索并合并排序（支持元数据过滤）。
+     *
+     * @param collectionNames 多个 Milvus Collection 名称
+     * @param query           查询文本
+     * @param topK            每个 Collection 返回的候选数量
+     * @param finalTopK       合并后的最终 Top-K
+     * @param filterExpr      Milvus 标量过滤表达式，为 null 时不过滤
+     * @return 检索结果列表，按相似度降序排列
+     */
+    public List<SearchTestResponse.SearchHit> searchMultiCollection(
+            List<String> collectionNames, String query, int topK, int finalTopK, String filterExpr) {
         if (collectionNames == null || collectionNames.isEmpty()) {
             return List.of();
         }
@@ -64,7 +92,7 @@ public class VectorSearchService {
         List<SearchTestResponse.SearchHit> allHits = new ArrayList<>();
         for (String collection : collectionNames) {
             try {
-                List<SearchTestResponse.SearchHit> hits = searchByVector(collection, queryVector, topK);
+                List<SearchTestResponse.SearchHit> hits = searchByVector(collection, queryVector, topK, filterExpr);
                 allHits.addAll(hits);
             } catch (Exception e) {
                 log.warn("Search failed for collection {}: {}", collection, e.getMessage());
@@ -81,15 +109,27 @@ public class VectorSearchService {
      * 使用向量直接检索（核心方法）。
      */
     private List<SearchTestResponse.SearchHit> searchByVector(String collectionName, float[] vector, int topK) {
+        return searchByVector(collectionName, vector, topK, null);
+    }
+
+    /**
+     * 使用向量直接检索（核心方法，支持元数据过滤）。
+     */
+    private List<SearchTestResponse.SearchHit> searchByVector(String collectionName, float[] vector, int topK, String filterExpr) {
         List<List<Float>> vectors = List.of(toFloatList(vector));
 
-        SearchReq searchReq = SearchReq.builder()
+        SearchReq.SearchReqBuilder<?, ?> builder = SearchReq.builder()
                 .collectionName(collectionName)
                 .annsField("vector")
                 .data(vectors)
                 .topK(topK)
-                .outputFields(OUTPUT_FIELDS)
-                .build();
+                .outputFields(OUTPUT_FIELDS);
+
+        if (filterExpr != null && !filterExpr.isBlank()) {
+            builder.filter(filterExpr);
+        }
+
+        SearchReq searchReq = builder.build();
 
         SearchResp searchResp = milvusClient.search(searchReq);
 

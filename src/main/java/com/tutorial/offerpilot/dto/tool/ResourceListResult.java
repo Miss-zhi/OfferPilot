@@ -25,5 +25,6 @@ public class ResourceListResult {
         private String url;
         private String type;
         private Float relevanceScore;
+        private String source;
     }
 }

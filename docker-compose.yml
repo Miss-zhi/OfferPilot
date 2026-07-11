@@ -8,6 +8,7 @@
 #   Milvus 2.4.6 → 19530 向量数据库 (RAG)
 #   etcd 3.5.14  → 2379  Milvus 元数据存储
 #   MinIO        → 9001  对象存储 (Milvus 依赖)
+#   WebSearch    → 3000  MCP 联网搜索 (Agent 工具)
 # ============================================================
 
 version: '3.8'
@@ -97,6 +98,15 @@ services:
     depends_on:
       - etcd
       - minio
+    restart: unless-stopped
+
+  # ==================== MCP Web Search ====================
+  web-search:
+    image: ghcr.io/aas-ee/open-web-search:latest
+    ports:
+      - "3000:3000"
+    environment:
+      DEFAULT_SEARCH_ENGINE: baidu
     restart: unless-stopped
 
 volumes:

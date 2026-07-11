@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: frontend_webapp/user_settings_page
-title: 用户模型偏好设置页面
-scope:
-    - web/src/ui/pages/settings/SettingsPage.tsx
-source_files: []
-depends_on: []
-related_to:
-    - path: backend_api/model_config_management
