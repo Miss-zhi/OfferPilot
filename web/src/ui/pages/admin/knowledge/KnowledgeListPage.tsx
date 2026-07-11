@@ -60,9 +60,12 @@ export function KnowledgeListPage() {
       message.success('创建成功');
       setModalOpen(false);
       form.resetFields();
+      setEditingItem(null);
       loadData();
-    } catch {
-      // validation error, do nothing
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message) {
+        message.error(err.message);
+      }
     }
   };
 

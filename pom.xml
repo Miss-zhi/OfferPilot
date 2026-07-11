@@ -164,6 +164,13 @@
             <version>${agentscope.version}</version>
         </dependency>
 
+        <!-- AgentScope Studio — 实时监控 Agent 调用与 Trace -->
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-extensions-studio</artifactId>
+            <version>${agentscope.version}</version>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>

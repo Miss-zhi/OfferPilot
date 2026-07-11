@@ -23,6 +23,8 @@ import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.permission.PermissionRule;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.tool.mcp.McpClientBuilder;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 import lombok.extern.slf4j.Slf4j;
@@ -266,6 +268,9 @@ public class AgentFactory {
                 .group("utility")
                 .apply();
 
+        // ---- 注册 MCP web-search 工具 ----
+        registerMcpWebSearch(toolkit);
+
         // ---- 注册元工具 ----
         toolkit.registerMetaTool();
 
@@ -286,7 +291,7 @@ public class AgentFactory {
                 【你的唯一职责】理解用户需求，分派任务给子 Agent，整合结果回复用户。
                 【严禁行为】你绝对不能直接调用任何业务工具（search_questions、analyze_answer、
                            parse_resume 等）。你的工具箱中只有 spawn/resume_subagent 和
-                           web_search。所有业务操作必须通过子 Agent 完成。
+                           search。所有业务操作必须通过子 Agent 完成。
 
                 子 Agent 分派指南：
                 - 简历分析/优化 → spawn resume_coach
@@ -295,7 +300,7 @@ public class AgentFactory {
                 - 公司面试情报 → spawn company_researcher
                 - 学习计划/进度 → spawn study_planner
                 - 薪资查询/offer对比/谈判策略 → spawn salary_advisor
-                - 通用知识问答（无匹配子Agent时） → 调用 web_search 从互联网获取信息
+                - 通用知识问答（无匹配子Agent时） → 调用 search 从互联网获取信息
 
                 调度规则：
                 1. 你只能使用 spawn（创建子Agent任务）和 resume（恢复子Agent任务）。
@@ -395,10 +400,10 @@ public class AgentFactory {
                         1. 调用 search_company_interviews 检索目标公司的面试情报
                         2. 调用 search_questions 检索高频考点的具体题目
                         3. 如果以上两个工具返回的结果不足或为空，
-                           调用 web_search 从互联网搜索最新的面试经验
+                           调用 search 从互联网搜索最新的面试经验
                         4. 整合成'面试情报卡'，标注数据来源（知识库/互联网）
                         信息要准确，标注数据来源和时间。""")
-                .tools(List.of("search_company_interviews", "search_questions", "web_search"))
+                .tools(List.of("search_company_interviews", "search_questions", "search"))
                 .build();
     }
 
@@ -413,11 +418,11 @@ public class AgentFactory {
                         3. 按优先级从高到低安排学习顺序
                         4. 调用 search_resources 匹配学习资源
                         5. 调用 search_questions 检索高频考题
-                        6. 如果知识库中学习资源不足，调用 web_search 从互联网搜索
+                        6. 如果知识库中学习资源不足，调用 search 从互联网搜索
                            相关教程、文档和练习材料
                         7. 生成周学习计划
                         计划要实际可执行，每天 1-2 小时为宜。""")
-                .tools(List.of("track_progress", "prioritize_weaknesses", "search_resources", "search_questions", "web_search"))
+                .tools(List.of("track_progress", "prioritize_weaknesses", "search_resources", "search_questions", "search"))
                 .build();
     }
 
@@ -429,13 +434,13 @@ public class AgentFactory {
                         你是一个资深 HR 和职业规划顾问，有 15 年招聘和薪资谈判经验。
                         你的职责：
                         1. 调用 search_salary 检索目标公司+岗位的薪资范围
-                        2. 如果本地薪资数据库无记录，调用 web_search 从互联网搜索
+                        2. 如果本地薪资数据库无记录，调用 search 从互联网搜索
                            该公司和岗位的最新薪资行情
                         3. 调用 compare_offers 对比多个 offer 的综合待遇
                         4. 调用 generate_negotiation_script 生成谈判话术
                         5. 结合市场数据给出客观建议
                         薪资信息敏感，回复要专业、客观、有数据支撑。""")
-                .tools(List.of("search_salary", "compare_offers", "generate_negotiation_script", "web_search"))
+                .tools(List.of("search_salary", "compare_offers", "generate_negotiation_script", "search"))
                 .build();
     }
 
@@ -476,11 +481,42 @@ public class AgentFactory {
                         new PermissionRule("generate_negotiation_script", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("smart_search",
                         new PermissionRule("smart_search", null, PermissionBehavior.ALLOW, "userSettings"))
-                .addAllowRule("web_search",
-                        new PermissionRule("web_search", null, PermissionBehavior.ALLOW, "联网搜索直接放行"))
+                .addAllowRule("search",
+                        new PermissionRule("search", null, PermissionBehavior.ALLOW, "联网搜索直接放行"))
                 .addDenyRule("delete_user_data",
                         new PermissionRule("delete_user_data", null, PermissionBehavior.DENY, "userSettings"))
                 .build();
+    }
+
+    /**
+     * 显式注册 MCP web-search 服务器到 Toolkit。
+     * 不依赖 HarnessAgent 内部的 tools.json 自动加载机制，
+     * 直接通过 McpClientBuilder 连接 MCP 服务器并注册工具。
+     * 使用 Streamable HTTP 传输协议（与 open-websearch 服务端协议一致）。
+     */
+    private void registerMcpWebSearch(Toolkit toolkit) {
+        String mcpUrl = "http://localhost:3000/mcp";
+        try {
+            log.info("Connecting to MCP web-search server at {}...", mcpUrl);
+            McpClientWrapper mcpClient = McpClientBuilder.create("web-search")
+                    .streamableHttpTransport(mcpUrl)
+                    .timeout(Duration.ofSeconds(60))
+                    .initializationTimeout(Duration.ofSeconds(30))
+                    .buildAsync()
+                    .block();
+
+            if (mcpClient != null) {
+                toolkit.registration()
+                        .mcpClient(mcpClient)
+                        .apply();
+                log.info("MCP web-search server registered successfully.");
+            } else {
+                log.error("MCP web-search client build returned null, agents will lack search capability.");
+            }
+        } catch (Exception e) {
+            log.error("Failed to register MCP web-search server ({}): {}",
+                    mcpUrl, e.getMessage(), e);
+        }
     }
 
     /**

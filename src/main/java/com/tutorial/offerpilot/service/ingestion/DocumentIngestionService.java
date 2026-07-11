@@ -12,6 +12,7 @@ import com.tutorial.offerpilot.repository.ChunkRepository;
 import com.tutorial.offerpilot.repository.DocumentRepository;
 import com.tutorial.offerpilot.repository.KnowledgeBaseRepository;
 import com.tutorial.offerpilot.service.EmbeddingService;
+import com.tutorial.offerpilot.service.DocumentIngestionEvent;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.service.vector.request.InsertReq;
 import io.milvus.v2.service.vector.response.InsertResp;
@@ -19,6 +20,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -41,10 +44,21 @@ public class DocumentIngestionService {
     private final DocumentChunker chunker;
 
     /**
-     * 异步执行文档入库管道：PARSING → CHUNKING → EMBEDDING → INDEXING → ACTIVE。
+     * 监听文档入库事件，事务提交后异步执行入库管道。
+     * @Async 确保在独立线程中执行，避免阻塞事务提交线程。
      */
     @Async("ingestionExecutor")
-    public void ingestDocument(String docId) {
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onDocumentIngestionEvent(DocumentIngestionEvent event) {
+        log.info("Document ingestion event received: docId={}", event.getDocId());
+        doIngestDocument(event.getDocId());
+    }
+
+    /**
+     * 文档入库管道：PARSING → CHUNKING → EMBEDDING → INDEXING → ACTIVE。
+     * 由 onDocumentIngestionEvent 异步调用。
+     */
+    public void doIngestDocument(String docId) {
         log.info("Document ingestion started: docId={}", docId);
 
         KbDocument doc = docRepo.findByDocId(docId)

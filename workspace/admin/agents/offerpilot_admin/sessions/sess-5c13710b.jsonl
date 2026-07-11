@@ -1,0 +1,2 @@
+{"type":"message","id":"00d4e86c-42e2-4d63-b985-40443011b1be","timestamp":1783772329.385661561,"role":"USER","content":"搜索到了吗"}
+{"type":"message","id":"1e446292-05ab-9d50-872c-8fcf6f16864d","parentId":"00d4e86c-42e2-4d63-b985-40443011b1be","timestamp":1783772329.385847102,"role":"ASSISTANT","content":"我需要先了解一下当前的情况。让我检查一下是否有正在进行的搜索任务。\n\n\n[tool_call: task_list({\"status_filter\":\"running\"})]","toolCallId":"call_d424d56b13fd4686a0078a1d"}

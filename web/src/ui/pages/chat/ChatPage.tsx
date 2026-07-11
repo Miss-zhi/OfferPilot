@@ -17,6 +17,7 @@ import {
   ClearOutlined,
   SettingOutlined,
   AppstoreOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '@/store/auth-store';
 import { useChatStore } from '@/store/chat-store';
@@ -36,6 +37,7 @@ const iconMap: Record<string, React.ReactNode> = {
   SearchOutlined: <SearchOutlined />,
   ScheduleOutlined: <ScheduleOutlined />,
   DollarOutlined: <DollarOutlined />,
+  DatabaseOutlined: <DatabaseOutlined />,
 };
 
 export function ChatPage() {
@@ -94,6 +96,9 @@ export function ChatPage() {
           onDelta(text) {
             appendStreamContent(aiMessageId, text);
           },
+          onSessionId(id) {
+            setSessionId(id);
+          },
           onDone() {
             setStreaming(false);
           },
@@ -107,7 +112,7 @@ export function ChatPage() {
       message.error('发送失败，请重试');
       setStreaming(false);
     }
-  }, [inputValue, isStreaming, sessionId, uploadedFilePath, addMessage, appendStreamContent, setStreaming]);
+  }, [inputValue, isStreaming, sessionId, uploadedFilePath, addMessage, appendStreamContent, setStreaming, setSessionId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -152,6 +157,8 @@ export function ChatPage() {
           onClick={({ key }) => {
             if (key === 'nav-models') {
               navigate('/admin/models');
+            } else if (key === 'nav-knowledge') {
+              navigate('/admin/knowledge');
             } else if (key === 'nav-settings') {
               navigate('/settings');
             } else {
@@ -165,6 +172,11 @@ export function ChatPage() {
               label: fn.label,
             })),
             { type: 'divider' },
+            {
+              key: 'nav-knowledge',
+              icon: <DatabaseOutlined />,
+              label: '知识库管理',
+            },
             ...(role === 'ADMIN'
               ? [
                   {

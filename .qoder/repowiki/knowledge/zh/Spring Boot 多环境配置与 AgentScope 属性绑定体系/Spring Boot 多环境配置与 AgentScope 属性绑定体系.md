@@ -8,56 +8,97 @@ source_files:
     - src/main/resources/application.yml
     - src/main/resources/application-dev.yml
     - src/main/resources/application-prod.yml
+    - src/test/resources/application-test.yml
     - src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java
     - src/main/java/com/tutorial/offerpilot/config/MilvusConfig.java
     - src/main/java/com/tutorial/offerpilot/config/RedisConfig.java
-    - src/main/resources/logback-spring.xml
+    - src/main/java/com/tutorial/offerpilot/config/AsyncConfig.java
 ---
 
-## 系统概述
+## 1. 系统概览
 
-本项目基于 Spring Boot 3.2，采用 YAML Profile 分层加 @ConfigurationProperties 强类型绑定的配置体系。核心思路是：默认配置集中、环境差异通过 profile 覆盖、敏感信息走环境变量注入。AgentScope v2 的模型、知识库、Embedding、转写等能力均通过独立的子配置块管理，实现 LLM Provider 与 Embedding/Transcription 服务的解耦。
+本项目基于 Spring Boot 3.2，采用 **YAML Profile + `@ConfigurationProperties` 强类型绑定** 的官方推荐方式管理配置。核心思路：
 
-## 关键文件与包
+- 通过 `application.yml` 提供默认值（H2 + Dev）；
+- 通过 `application-{profile}.yml` 覆盖特定环境差异（dev/prod/test）；
+- 通过 `agentscope.*`、`app.*` 等自定义前缀将外部依赖（AgentScope、Milvus、Redis、上传目录等）以强类型 POJO 注入到业务代码；
+- 敏感信息一律通过环境变量 `${VAR:default}` 注入，避免硬编码。
 
-- 配置文件
-  - src/main/resources/application.yml — 全局默认配置（数据库、AgentScope、Milvus、Redis、上传目录、日志）
-  - src/main/resources/application-dev.yml — 开发环境覆盖（H2 Console、DEBUG 日志）
-  - src/main/resources/application-prod.yml — 生产环境覆盖（MySQL、ddl-auto=validate、收紧日志级别）
-  - src/main/resources/logback-spring.xml — 基于 springProperty 读取 ACTIVE_PROFILE 动态输出日志路径
-- 配置类
-  - config/AgentScopeProperties.java — 以 agentscope.* 为前缀的强类型属性绑定，内含 Model/Agent/Knowledge/Embedding/Transcription 五个嵌套子配置
-  - config/MilvusConfig.java + config/MilvusProperties.java — Milvus 客户端 Bean 装配
-  - config/RedisConfig.java — Redis CacheManager 与 StringRedisTemplate 初始化，按业务 cache 名设置不同 TTL
-  - config/SecurityConfig.java / config/WebConfig.java / config/AsyncConfig.java — 安全、Web、异步线程池等基础设施配置
+## 2. 关键文件与包
 
-## 架构与约定
+| 类别 | 路径 | 作用 |
+|---|---|---|
+| 主配置 | `src/main/resources/application.yml` | 全局默认配置（端口、Datasource、AgentScope、App、日志） |
+| 开发环境 | `src/main/resources/application-dev.yml` | H2 Console 开启、DEBUG 日志 |
+| 生产环境 | `src/main/resources/application-prod.yml` | MySQL Datasource、JPA validate、日志降为 INFO/WARN |
+| 测试环境 | `src/test/resources/application-test.yml` | Testcontainers MySQL、内存状态存储、禁用自动初始化 |
+| AgentScope 属性 | `config/AgentScopeProperties.java` | `agentscope.*` 强类型绑定（Model/Agent/Knowledge/Embedding/Transcription） |
+| Milvus 客户端 | `config/MilvusConfig.java` + `config/MilvusProperties.java` | 从 `app.milvus.*` 构建 `MilvusClientV2` Bean |
+| Redis 缓存 | `config/RedisConfig.java` | `StringRedisTemplate` + 按 Cache 名分 TTL 的 `RedisCacheManager` |
+| 异步线程池 | `config/AsyncConfig.java` | 基于 `app.async.*` 的 `TaskExecutor` Bean |
+| Web/安全 | `config/WebConfig.java`、`config/SecurityConfig.java` | CORS、拦截器、JWT 过滤器等 |
 
-1. Profile 分层策略
-   - application.yml 提供所有模块的默认值；spring.profiles.active=dev 作为启动入口。
-   - application-{profile}.yml 仅声明需要覆盖的差异项，遵循最小覆盖原则。
-   - 测试环境通过 AbstractControllerIT / AbstractServiceIT 基类统一加载，未单独放置 application-test.yml，依赖 H2 内存库与内嵌服务。
+## 3. 架构与约定
 
-2. 敏感信息与环境变量注入
-   - 所有密钥类配置使用 ${ENV_VAR:default} 语法：DASHSCOPE_API_KEY、EMBEDDING_API_KEY、TRANSCRIPTION_API_KEY、JWT_SECRET、ENCRYPTION_SECRET_KEY、MYSQL_ROOT_PASSWORD。
-   - 默认值仅在本地开发时生效，生产必须通过容器或编排平台注入环境变量。
+### 3.1 Profile 分层策略
 
-3. AgentScope 配置解耦设计
-   - agentscope.model.* 控制主 LLM（DashScope qwen-max），agentscope.embedding.* 和 agentscope.transcription.* 独立配置，支持将 Embedding/转写指向不同 Provider（如 OpenAI），避免共用同一 API Key。
-   - agentscope.agent.state-store=redis 指定 Agent 状态持久化后端；agentscope.knowledge.base-path 指向 ./workspace/knowledge，由 DocumentIngestionService 消费。
+```
+application.yml (默认)
+├── application-dev.yml   ← spring.profiles.active=dev (本地开发)
+├── application-prod.yml  ← 容器/Docker 部署时激活
+└── application-test.yml  ← @ActiveProfiles("test") 集成测试使用
+```
 
-4. 外部依赖 Bean 装配模式
-   - 每个外部中间件（Milvus、Redis、AgentScope）对应一个 *Config 类，负责从 application.yml 读取参数并构造 Client Bean。
-   - 连接超时、KeepAlive、TTL 等运行时参数集中在配置文件中，便于按环境调整。
+- 默认 profile 指向 `dev`，本地启动即获得 H2 + DEBUG 日志；
+- 生产通过 `-Dspring.profiles.active=prod` 或环境变量切换；
+- 测试基类 `AbstractControllerIT` / `AbstractServiceIT` 统一声明 `@ActiveProfiles("test")`。
 
-5. 日志配置
-   - logback-spring.xml 通过 <springProperty> 读取 spring.profiles.active，结合 logging.level.* 在 dev/prod 间切换详细程度。
-   - 控制台与文件输出格式一致，便于统一收集。
+### 3.2 强类型属性绑定
 
-## 开发者应遵守的规则
+所有外部依赖的配置均通过 `@ConfigurationProperties(prefix = "...")` 暴露为嵌套静态类：
 
-- 新增配置项：优先放入 application.yml 的对应命名空间（app.*、agentscope.*、milvus.*、redis.*），并在对应的 *Properties 或 *Config 中完成类型绑定。
-- 敏感字段：一律使用 ${ENV_VAR:} 形式，不得硬编码默认值进入生产分支。
-- 环境差异：只在新建 application-{profile}.yml 中声明覆盖项，禁止修改 application.yml 中的默认值来适配特定环境。
-- AgentScope 扩展：如需新增独立服务（如新的向量检索后端），参照 MilvusConfig 模式创建 XxxConfig + XxxProperties，并在 application.yml 中以 app.xxx.* 暴露配置。
-- 测试配置：集成测试通过继承 AbstractServiceIT / AbstractControllerIT 复用默认 H2 配置，无需额外 profile 文件。
+- `agentscope.model.*` — LLM Provider、API Key、Base URL、模型名、温度、最大 Token；
+- `agentscope.agent.*` — workspace 路径、state-store 后端（redis/memory）、compaction 开关；
+- `agentscope.knowledge.*` — 知识库根路径、embedding 模型、chunk 大小/重叠、topK、是否 auto-init；
+- `agentscope.embedding.*` — 独立于 LLM 的 Embedding Provider（支持 DeepSeek 等无 Embedding 能力场景）；
+- `agentscope.transcription.*` — 录音转写专用端点与 Key（回退至 model.api-key）；
+- `app.jwt.*`、`app.encryption.*`、`app.milvus.*`、`app.redis.*`、`app.upload-dir`、`app.allowed-file-types`、`app.async.*`。
+
+这种设计使配置变更无需修改 Java 源码，且 IDE 具备完整提示。
+
+### 3.3 环境变量优先级与回退链
+
+- 所有密钥类配置均采用 `${ENV_VAR:default}` 语法，例如：
+  - `agentscope.model.api-key: ${DASHSCOPE_API_KEY:sk-xxx}`
+  - `agentscope.embedding.api-key: ${EMBEDDING_API_KEY:${DASHSCOPE_API_KEY:}}`
+  - `agentscope.transcription.api-key: ${TRANSCRIPTION_API_KEY:${DASHSCOPE_API_KEY:}}`
+  - `app.jwt.secret: ${JWT_SECRET:dev-jwt-secret-change-in-production}`
+- 回退链语义清晰：**显式环境变量 > 配置文件默认值 > 代码中硬编码默认值**。
+
+### 3.4 外部服务 Bean 装配
+
+- `MilvusConfig` 读取 `app.milvus.*` 构造 `io.milvus.v2.client.MilvusClientV2`；
+- `RedisConfig` 启用 `@EnableCaching`，并针对 `searchQuestions` / `searchAnswers` / `searchCompanyInterviews` / `searchResources` 四个 Cache 分别设置 5 分钟 TTL；
+- `AsyncConfig` 基于 `app.async.*` 创建线程池 Bean，供异步任务使用。
+
+## 4. 开发者应遵循的规则
+
+1. **新增配置项必须走 `@ConfigurationProperties`**
+   在对应 Properties 类中添加字段，并在 YAML 中给出默认值，禁止在业务代码中直接 `@Value("${...}")` 散落字符串。
+
+2. **敏感信息一律通过环境变量注入**
+   不要在 YAML 中明文写入 API Key、JWT Secret、数据库密码；使用 `${VAR:default}` 形式，并在部署文档中说明所需环境变量。
+
+3. **Profile 只覆盖差异，不重复全量配置**
+   `application-dev.yml` / `application-prod.yml` 仅包含与默认值不同的片段，保持单一事实源。
+
+4. **测试环境隔离**
+   集成测试统一使用 `application-test.yml`，并通过 `@DynamicPropertySource` 注入 Testcontainers 动态端口，禁止在测试中连接真实外部服务。
+
+5. **新增外部依赖时同步更新三处**
+   - `application.yml` 中的默认值；
+   - `AgentScopeProperties` / 对应 Properties 类的字段与注释；
+   - `application-prod.yml` / `application-test.yml` 中的覆盖值。
+
+6. **日志级别按环境区分**
+   dev 使用 DEBUG，prod 使用 INFO/WARN，测试使用 WARN，避免在生产泄露调试信息。

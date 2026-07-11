@@ -32,7 +32,7 @@ public class EmbeddingService {
     private final OkHttpClient httpClient;
     private final ObjectMapper objectMapper;
 
-    private static final int MAX_BATCH_SIZE = 25;
+    private static final int MAX_BATCH_SIZE = 10;
 
     public EmbeddingService(AgentScopeProperties properties) {
         AgentScopeProperties.EmbeddingConfig embeddingConfig = properties.getEmbedding();
@@ -69,7 +69,7 @@ public class EmbeddingService {
     }
 
     /**
-     * 批量 Embedding，自动按 MAX_BATCH_SIZE=25 分批。
+     * 批量 Embedding，自动按 MAX_BATCH_SIZE=10 分批。
      */
     public List<float[]> embedBatch(List<String> texts) {
         if (texts == null || texts.isEmpty()) {

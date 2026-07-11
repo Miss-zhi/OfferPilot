@@ -5,19 +5,17 @@ spring:
   application:
     name: offerpilot
 
+  config:
+    import: optional:file:.env[.properties]
+
   profiles:
     active: dev
 
   datasource:
-    url: jdbc:h2:file:./data/offerpilot;AUTO_SERVER=TRUE
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
-
-  h2:
-    console:
-      enabled: true
-      path: /h2-console
+    url: jdbc:mysql://localhost:3306/offerpilot?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_ROOT_PASSWORD:root123}
 
   jpa:
     hibernate:
@@ -35,8 +33,8 @@ agentscope:
   model:
     provider: dashscope
     api-key: ${DASHSCOPE_API_KEY:sk-xxx}
-    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    model-name: qwen-max
+    base-url: https://dashscope.aliyuncs.com
+    model-name: qwen3.5-plus
     temperature: 0.7
     max-tokens: 4096
 
@@ -71,7 +69,15 @@ agentscope:
     model: paraformer-v2
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
 
-# App config
+  # AgentScope Studio — 实时监控与 Trace
+  # 接入 Studio 后可实时查看 Agent 消息流、工具调用参数/耗时/返回结果、Token 消耗等。
+  # 默认关闭；开发/调试时设置 enabled: true 并启动 Studio 服务即可。
+  studio:
+    enabled: true
+    url: http://localhost:8000
+    project: OfferPilot
+
+# App config:
 app:
   jwt:
     secret: ${JWT_SECRET:dev-jwt-secret-change-in-production}

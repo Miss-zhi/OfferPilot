@@ -1,0 +1,2 @@
+{"type":"message","id":"73fa4d8d-ed28-4412-a7ea-b74ce6f5fea8","timestamp":1783775287.718852762,"role":"USER","content":"你好，简单回复即可"}
+{"type":"message","id":"abd327f7-0caf-9ea5-a21b-e881e043e8fc","parentId":"73fa4d8d-ed28-4412-a7ea-b74ce6f5fea8","timestamp":1783775287.718863226,"role":"ASSISTANT","content":"你好！我是 OfferPilot 面试诊断助手的调度中心。有什么可以帮你的吗？比如：\n\n- 简历分析/优化\n- 面试回答分析\n- 模拟面试练习\n- 公司面试情报查询\n- 学习计划制定\n- 薪资查询/offer 对比\n\n直接告诉我你的需求即可！"}

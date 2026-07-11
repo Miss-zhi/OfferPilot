@@ -1,0 +1,2 @@
+{"type":"message","id":"ce60f2a8-338f-48b6-b3e0-d3a144ea4ff2","timestamp":1783771145.153122582,"role":"USER","content":"帮我搜索最新的Java面试题"}
+{"type":"message","id":"c4310290-282c-9289-bcc7-22484d197a13","parentId":"ce60f2a8-338f-48b6-b3e0-d3a144ea4ff2","timestamp":1783771145.153204501,"role":"ASSISTANT","content":"我来帮你搜索最新的 Java 面试题。\n\n\n[tool_call: search({\"limit\":15,\"engines\":[\"baidu\",\"csdn\",\"juejin\"],\"query\":\"2026 年最新 Java 面试题 高频考点\"})]","toolCallId":"call_1202bbfafaa24d409f6a2f8a"}

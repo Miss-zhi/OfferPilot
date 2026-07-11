@@ -32,6 +32,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -62,6 +63,7 @@ class KnowledgeBaseServiceTest {
     @Mock private PersonalizedRankService personalizedRankService;
     @Mock private SearchAnalyticsService searchAnalyticsService;
     @Mock private MilvusCollectionManager milvusCollectionManager;
+    @Mock private ApplicationEventPublisher eventPublisher;
 
     private KnowledgeBaseService kbService;
 
@@ -77,7 +79,7 @@ class KnowledgeBaseServiceTest {
                 milvusClient, kbConverter, vectorSearchService, questionRepo,
                 fileService, ingestionService, webSearchFallbackService,
                 personalizedRankService, searchAnalyticsService,
-                milvusCollectionManager);
+                milvusCollectionManager, eventPublisher);
 
         normalUser = new User("testuser", "pass", List.of(new SimpleGrantedAuthority("ROLE_USER")));
         adminUser = new User("admin", "pass", List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
@@ -561,7 +563,7 @@ class KnowledgeBaseServiceTest {
             assertEquals(0, saved.getProgress());
             assertTrue(saved.getDocId().startsWith("doc-"));
 
-            verify(ingestionService).ingestDocument(saved.getDocId());
+            verify(eventPublisher).publishEvent(any(DocumentIngestionEvent.class));
         }
 
         @Test
@@ -732,7 +734,7 @@ class KnowledgeBaseServiceTest {
             assertNull(doc.getIndexedAt());
             assertEquals(2, kb.getDocumentCount());
             assertEquals(20, kb.getChunkCount());
-            verify(ingestionService).ingestDocument(DOC_ID);
+            verify(eventPublisher).publishEvent(any(DocumentIngestionEvent.class));
         }
 
         @Test

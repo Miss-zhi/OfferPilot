@@ -33,6 +33,7 @@ import io.milvus.v2.service.vector.request.DeleteReq;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +62,7 @@ public class KnowledgeBaseService {
     private final PersonalizedRankService personalizedRankService;
     private final SearchAnalyticsService searchAnalyticsService;
     private final MilvusCollectionManager milvusCollectionManager;
+    private final ApplicationEventPublisher eventPublisher;
 
     public KnowledgeBaseService(KnowledgeBaseRepository kbRepo,
                                 DocumentRepository docRepo,
@@ -74,7 +76,8 @@ public class KnowledgeBaseService {
                                 WebSearchFallbackService webSearchFallbackService,
                                 PersonalizedRankService personalizedRankService,
                                 SearchAnalyticsService searchAnalyticsService,
-                                MilvusCollectionManager milvusCollectionManager) {
+                                MilvusCollectionManager milvusCollectionManager,
+                                ApplicationEventPublisher eventPublisher) {
         this.kbRepo = kbRepo;
         this.docRepo = docRepo;
         this.chunkRepo = chunkRepo;
@@ -88,12 +91,14 @@ public class KnowledgeBaseService {
         this.personalizedRankService = personalizedRankService;
         this.searchAnalyticsService = searchAnalyticsService;
         this.milvusCollectionManager = milvusCollectionManager;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
     public KbResponse createKnowledgeBase(CreateKbRequest req, String userId, UserDetails currentUser) {
         String kbId = "kb-" + UUID.randomUUID().toString().substring(0, 8);
-        String collectionName = "kb_" + kbId;
+        // Milvus collection name 只允许字母、数字、下划线，将 kbId 中的连字符替换为下划线
+        String collectionName = "kb_" + kbId.replace('-', '_');
         boolean isAdmin = currentUser.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
 
@@ -715,8 +720,8 @@ public class KnowledgeBaseService {
 
         log.info("Document created: docId={}, kbId={}, fileName={}", docId, kbId, fileName);
 
-        // 异步触发入库管道
-        ingestionService.ingestDocument(docId);
+        // 事务提交后通过事件触发异步入库，确保数据已持久化
+        eventPublisher.publishEvent(new DocumentIngestionEvent(this, docId));
 
         return kbConverter.toDocResponse(doc);
     }
@@ -834,8 +839,8 @@ public class KnowledgeBaseService {
 
         log.info("Reindex triggered: docId={}, kbId={}, oldChunks={}", docId, kbId, chunkCount);
 
-        // 5. 触发异步入库管道
-        ingestionService.ingestDocument(docId);
+        // 5. 事务提交后通过事件触发异步入库管道
+        eventPublisher.publishEvent(new DocumentIngestionEvent(this, docId));
     }
 
     /**

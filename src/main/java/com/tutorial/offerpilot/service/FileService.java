@@ -36,7 +36,8 @@ public class FileService {
         }
 
         String fileName = UUID.randomUUID() + "." + ext;
-        Path targetDir = Paths.get(uploadDir, subDir);
+        // 使用绝对路径，避免 Tomcat 嵌入式环境下相对路径解析到临时目录
+        Path targetDir = Paths.get(uploadDir, subDir).toAbsolutePath();
         try {
             Files.createDirectories(targetDir);
             Path targetPath = targetDir.resolve(fileName);

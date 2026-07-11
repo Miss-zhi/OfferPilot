@@ -1,0 +1,2 @@
+{"type":"message","id":"118ef6a5-bb36-4f71-8dac-1aa85ad74e8b","timestamp":1783771269.079361465,"role":"USER","content":"帮我搜索最新的Java面试题"}
+{"type":"message","id":"06d018e7-0721-9e60-98ab-cae981152ab6","parentId":"118ef6a5-bb36-4f71-8dac-1aa85ad74e8b","timestamp":1783771269.079588672,"role":"ASSISTANT","content":"[tool_call: search({\"limit\":15,\"engines\":[\"baidu\",\"bing\",\"juejin\"],\"query\":\"2026年最新Java面试题 高频考点\"})]","toolCallId":"call_9146b5031adb495a86f3919f"}

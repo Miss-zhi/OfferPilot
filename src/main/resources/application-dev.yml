@@ -1,8 +1,8 @@
 # Dev profile
 spring:
-  h2:
-    console:
-      enabled: true
+  datasource:
+    hikari:
+      maximum-pool-size: 5
 
 logging:
   level:

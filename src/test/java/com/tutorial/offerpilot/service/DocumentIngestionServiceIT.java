@@ -119,7 +119,7 @@ class DocumentIngestionServiceIT extends AbstractServiceIT {
             when(milvusClient.insert(any(InsertReq.class))).thenReturn(insertResp);
 
             // Act: 触发异步入库
-            ingestionService.ingestDocument("doc-test-ingest-001");
+            ingestionService.doIngestDocument("doc-test-ingest-001");
 
             // 等待异步管道完成（轮询最多 10 秒）
             KbDocument updated = waitForStatus("doc-test-ingest-001", "ACTIVE", 10_000);
@@ -156,7 +156,7 @@ class DocumentIngestionServiceIT extends AbstractServiceIT {
         @DisplayName("文档不存在 → 异步执行不抛同步异常（异常在线程池内处理）")
         void ingestDocument_notFound_shouldNotThrowSynchronously() {
             // @Async 方法的异常在线程池内消化，不会传播到调用方
-            assertDoesNotThrow(() -> ingestionService.ingestDocument("non-existent-doc"));
+            assertDoesNotThrow(() -> ingestionService.doIngestDocument("non-existent-doc"));
         }
 
         @Test
@@ -174,7 +174,7 @@ class DocumentIngestionServiceIT extends AbstractServiceIT {
             doc.setCreateBy("test");
             docRepo.saveAndFlush(doc);
 
-            ingestionService.ingestDocument("doc-test-fail-001");
+            ingestionService.doIngestDocument("doc-test-fail-001");
 
             KbDocument updated = waitForStatus("doc-test-fail-001", "FAILED", 10_000);
 
@@ -211,7 +211,7 @@ class DocumentIngestionServiceIT extends AbstractServiceIT {
                 doc.setCreateBy("test");
                 docRepo.saveAndFlush(doc);
 
-                ingestionService.ingestDocument("doc-test-unsupported-001");
+                ingestionService.doIngestDocument("doc-test-unsupported-001");
 
                 KbDocument updated = waitForStatus("doc-test-unsupported-001", "FAILED", 10_000);
 
@@ -251,7 +251,7 @@ class DocumentIngestionServiceIT extends AbstractServiceIT {
             when(milvusClient.insert(any(InsertReq.class)))
                     .thenThrow(new RuntimeException("Milvus connection refused"));
 
-            ingestionService.ingestDocument("doc-test-milvus-fail-001");
+            ingestionService.doIngestDocument("doc-test-milvus-fail-001");
 
             KbDocument updated = waitForStatus("doc-test-milvus-fail-001", "FAILED", 15_000);
 

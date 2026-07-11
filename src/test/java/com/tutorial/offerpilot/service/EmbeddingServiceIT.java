@@ -77,13 +77,13 @@ class EmbeddingServiceIT extends AbstractServiceIT {
         }
 
         @Test
-        @DisplayName("25 条文本（恰好一批次上限）→ 单批次调用")
+        @DisplayName("10 条文本（恰好一批次上限）→ 单批次调用")
         void embedBatch_exactlyBatchSize_shouldWork() {
             List<String> texts = new ArrayList<>();
-            for (int i = 0; i < 25; i++) {
+            for (int i = 0; i < 10; i++) {
                 texts.add("测试文本 " + i);
             }
-            assertEquals(25, texts.size());
+            assertEquals(10, texts.size());
 
             try {
                 embeddingService.embedBatch(texts);
@@ -94,17 +94,17 @@ class EmbeddingServiceIT extends AbstractServiceIT {
         }
 
         @Test
-        @DisplayName("50 条文本（超过上限）→ 自动分两批（25+25）")
+        @DisplayName("20 条文本（超过上限）→ 自动分两批（10+10）")
         void embedBatch_overLimit_shouldSplitIntoBatches() {
             List<String> texts = new ArrayList<>();
-            for (int i = 0; i < 50; i++) {
+            for (int i = 0; i < 20; i++) {
                 texts.add("测试文本 " + i);
             }
-            assertEquals(50, texts.size());
+            assertEquals(20, texts.size());
 
             try {
                 embeddingService.embedBatch(texts);
-                // 如果成功（有真实 Key），应返回 50 个向量
+                // 如果成功（有真实 Key），应返回 20 个向量
             } catch (RuntimeException e) {
                 // 预期：无真实 API Key，连接失败
                 assertNotNull(e.getMessage());

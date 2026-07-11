@@ -32,6 +32,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
 
+        // 跳过异步分派（SSE 流式响应场景）
+        if (request.isAsyncStarted()) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String token = extractToken(request);
 
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)) {
@@ -43,6 +49,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
             SecurityContextHolder.getContext().setAuthentication(authentication);
+        } else if (response.isCommitted()) {
+            // SSE 流活跃期间，匿名请求直接返回 401，避免 Spring Security 异常干扰
+            log.debug("Response already committed, rejecting anonymous request silently");
+            return;
         }
 
         filterChain.doFilter(request, response);

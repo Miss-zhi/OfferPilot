@@ -3,26 +3,26 @@
 <cite>
 **本文引用的文件**   
 - [AgentFactory.java](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java)
-- [UserModelService.java](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java)
-- [AgentScopeProperties.java](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java)
-- [AppUser.java](file://src/main/java/com/tutorial/offerpilot/entity/AppUser.java)
-- [ProviderPreset.java](file://src/main/java/com/tutorial/offerpilot/enums/ProviderPreset.java)
+- [ConfidenceTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java)
+- [KnowledgeGapTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java)
+- [PriorityRankTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/PriorityRankTool.java)
+- [ResumeQualityTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/ResumeQualityTool.java)
+- [StarCheckTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/StarCheckTool.java)
+- [TimeAllocationTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/TimeAllocationTool.java)
+- [SalaryTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java)
+- [SmartSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java)
+- [WebSearchFallbackService.java](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java)
+- [tools.json](file://workspace/tools.json)
 - [pom.xml](file://pom.xml)
 - [application.yml](file://src/main/resources/application.yml)
-- [QuestionSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/QuestionSearchTool.java)
-- [AnswerAnalyzeTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/AnswerAnalyzeTool.java)
-- [MockInterviewTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/MockInterviewTool.java)
-- [02-系统架构设计说明书.md](file://Documents/02-系统架构设计说明书.md)
-- [04-实现与编码规范.md](file://Documents/04-实现与编码规范.md)
 </cite>
 
 ## 更新摘要
 **变更内容**   
-- **新增智能 Provider 映射机制**：实现了 OpenAI 兼容 Provider（deepseek、siliconflow、volcengine）到 AgentScope openai provider 的自动映射
-- **增强 ModelRegistry 解析容错性**：添加了异常捕获和回退机制，确保模型解析失败时能优雅降级到 application.yml 配置
-- **补齐 8 个预设 Provider 依赖**：在 pom.xml 中补充了 dashscope、anthropic、gemini、ollama 四个缺失的 Model Extension 依赖
-- **修复默认配置**：将 application.yml 中的默认 provider 从 deepseek 改为 dashscope，model-name 从 deepseek-chat 改为 qwen-max
-- **完善依赖管理**：确保所有 8 个预设 Provider 都能被 ModelRegistry 正确解析和实例化
+- **新增六维分析工具集**：扩展了面试评估的六个专业维度，包括置信度分析、知识缺口检测、优先级排序、简历质量评估、STAR方法验证和时间分配分析
+- **增强子Agent协作能力**：在现有7个子Agent基础上，新增了专门处理六维分析的协作机制
+- **完善工具注册体系**：将新的六维分析工具集成到现有的Toolkit分组架构中
+- **扩展DTO数据结构**：为每个分析维度提供专门的结果对象，支持结构化数据返回和LLM指导
 
 ## 目录
 - ReActAgent 推理循环
@@ -31,73 +31,70 @@
 - Msg 消息流转路径
 - 智能模型解析与动态实例化
 - Provider 映射与依赖管理机制
+- MCP 联网搜索集成
+- 权限控制与安全机制
+- 六维分析工具集详解
 
 ## ReActAgent 推理循环
 - 推理循环要点
-  - Reasoning：主 Agent 基于系统提示词、记忆注入与计划模式进行思考，决定下一步动作（调用工具或委派子 Agent）。
-  - Action：通过 Toolkit 执行本地 @Tool 或通过 MCP 注册的外部工具；在"1 主 + 7 子"模式下，主 Agent 仅调度 spawn/resume_subagent，业务工具由子 Agent 白名单持有。
-  - Observation：工具返回结构化 POJO（dto/tool/*），框架自动序列化为 JSON 供 LLM 消费；LLM 据此生成自然语言输出或继续下一轮推理。
+  - Reasoning：主Agent作为调度中心，基于系统提示词、记忆注入与计划模式进行思考，决定下一步动作（委派子Agent或调用web_search）。
+  - Action：通过spawn/resume_subagent将任务委派给专业子Agent；子Agent各自持有独立的过滤Toolkit（仅含其白名单工具）。
+  - Observation：工具返回结构化POJO（dto/tool/*），框架自动序列化为JSON供LLM消费；LLM据此生成自然语言输出或继续下一轮推理。
 - HarnessAgent.builder() 关键配置项
-  - sysPrompt：定义角色、行为约束与"指导型工具"解读规则（如 generate_next_question/analyze_answer/evaluate_resume 只返回指导文本，需由 LLM 自行生成最终内容）。
+  - sysPrompt：调度中心角色定义，明确"唯一职责是分发任务给子Agent，严禁直接调用业务工具"的行为约束。
   - model：模型标识符（provider:modelName），从配置读取，支持动态解析。
-  - toolkit：注册所有本地 @Tool 与 registerMetaTool；子 Agent 通过 SubagentDeclaration.tools() 白名单从主 Toolkit 获取过滤副本。
-  - subagent：声明 7 个子 Agent（resume_coach、tech_evaluator、expression_evaluator、mock_interviewer、company_researcher、study_planner、salary_advisor）。
-  - middleware：TokenMonitorMiddleware、CostControlMiddleware、MemoryInjectMiddleware（每次推理前 onSystemPrompt 钩子加载用户长期记忆）。
-  - stateStore：RedisAgentStateStore（会话短期记忆，TTL 30 分钟）。
-  - compaction/memory：压缩策略与对话记忆开关。
-  - enablePlanMode/enableTaskList：计划模式与 todo_write 元工具。
-- 流程图（ReAct 循环）
-```mermaid
-flowchart TD
-Start(["开始"]) --> Reason["Reasoning<br/>结合系统提示词/记忆/计划模式进行思考"]
-Reason --> Decide{"需要工具还是委派子Agent？"}
-Decide --> |是| ToolCall["Action: 调用本地@Tool或MCP工具"]
-Decide --> |是| SpawnSub["Action: spawn/resume_subagent 委派子Agent"]
-ToolCall --> Obs["Observation: 工具返回结构化POJO"]
-SpawnSub --> Obs
-Obs --> NextStep["LLM根据Observation生成回复或继续推理"]
-NextStep --> End(["结束/下一轮"])
-```
+  - toolkit：注册所有本地@Tool与registerMetaTool；子Agent通过SubagentDeclaration.tools()白名单从主Toolkit获取过滤副本。
+  - subagent：声明7个子Agent（resume_coach、tech_evaluator、expression_evaluator、mock_interviewer、company_researcher、study_planner、salary_advisor）。
+  - permissionContext：启用细粒度权限控制，支持工具级ALLOW/DENY规则。
+  - workspace：配置MCP tools.json，启用web_search联网搜索能力。
+  - middleware：TokenMonitorMiddleware、CostControlMiddleware等监控中间件。
+  - enablePlanMode/enableTaskList：计划模式与todo_write元工具。
 
 **章节来源**
-- [04-实现与编码规范.md:566-598](file://Documents/04-实现与编码规范.md#L566-L598)
-- [02-系统架构设计说明书.md:1074-1133](file://Documents/02-系统架构设计说明书.md#L1074-L1133)
+- [AgentFactory.java:282-312](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L282-L312)
+- [AgentFactory.java:155-177](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L155-L177)
 
 ## @Tool 工具定义与动态激活
-- 以 QuestionSearchTool 为例的结构
-  - 类级别：@Component（Spring 管理）、@RequiredArgsConstructor（构造器注入依赖）。
-  - 方法级别：@Tool(name, description)，参数使用 @ToolParam(name, description)。
-  - 返回值：结构化 DTO（dto/tool/*），框架自动序列化。
+- 以 SalaryTool 为例的结构
+  - 类级别：@Component（Spring管理）、显式构造器注入ObjectMapper。
+  - 方法级别：@Tool(name, description)，参数使用@ToolParam(name, description)。
+  - 返回值：结构化DTO（dto/tool/*），框架自动序列化。
 - 注册机制
-  - 主 Agent 的 Toolkit 集中注册全部本地 @Tool，并调用 registerMetaTool() 启用元工具（如 reset_equipped_tools、todo_write）。
-  - 子 Agent 在 spawn 时从主 Toolkit 按 tools() 白名单筛选出独立副本，实现工具隔离。
+  - 主Agent的Toolkit集中注册全部本地@Tool，并调用registerMetaTool()启用元工具。
+  - 子Agent在spawn时从主Toolkit按tools()白名单筛选出独立副本，实现工具隔离。
 - 元工具
-  - registerMetaTool() 提供能力：reset_equipped_tools（动态启禁工具组）、todo_write（任务清单）等，便于主 Agent 调度与状态管理。
-- 13 个本地 @Tool + MCP web_search 全景表
+  - registerMetaTool()提供能力：reset_equipped_tools（动态启禁工具组）、todo_write（任务清单）等。
+- 19个本地@Tool + MCP web_search全景表
   - 名称 | 类别 | 返回类型 | 依赖注入
-  - parse_resume | 简历分析 | ResumeParseResult | PDF/DOCX 解析服务
+  - parse_resume | 简历分析 | ResumeParseResult | PDF/DOCX解析服务
   - evaluate_resume | 简历分析 | ResumeEvaluateResult | ResumeService
   - search_questions | 知识检索 | QuestionSearchResult | KnowledgeBaseService
   - search_answers | 知识检索 | AnswerSearchResult | KnowledgeBaseService
-  - search_company_info | 知识检索 | CompanySearchResult | KnowledgeBaseService
+  - search_company_interviews | 知识检索 | CompanySearchResult | KnowledgeBaseService
   - analyze_answer | 面试分析 | AnswerAnalysisResult | InterviewQuestionRepository
-  - transcribe_audio | 面试分析 | TranscribeResult | ASR 服务
+  - transcribe_audio | 面试分析 | TranscribeResult | ASR服务
   - generate_next_question | 面试分析 | NextQuestionResult | InterviewQuestionRepository / InterviewSessionRepository
-  - search_learning_resources | 知识检索 | ResourceListResult | KnowledgeBaseService
+  - search_resources | 知识检索 | ResourceListResult | KnowledgeBaseService
   - track_progress | 通用工具 | ProgressResult | ProgressService
-  - search_salary_data | 薪资谈判 | SalarySearchResult | KnowledgeBaseService
-  - compare_offers | 薪资谈判 | OfferComparisonResult | KnowledgeBaseService
-  - generate_negotiation_script | 薪资谈判 | NegotiationScriptResult | KnowledgeBaseService
-  - web_search（MCP） | 联网搜索 | 搜索结果 | OpenWebSearch MCP Server（tools.json 配置即接入）
+  - search_salary | 薪资谈判 | SalarySearchResult | SalaryService
+  - compare_offers | 薪资谈判 | OfferComparisonResult | SalaryService (JSON适配模式)
+  - generate_negotiation_script | 薪资谈判 | NegotiationScriptResult | SalaryService (简单委托模式)
+  - smart_search | 统一搜索 | SmartSearchResult | KnowledgeBaseService + QueryExpansionService
+  - prioritize_weaknesses | 学习规划 | PriorityResult | KnowledgeMasteryRepository + SearchAnalyticsService
+  - analyze_confidence | 自信度分析 | ConfidenceResult | 文本特征分析
+  - detect_knowledge_gaps | 知识盲区 | KnowledgeGapResult | KnowledgeBaseService
+  - check_star | STAR检查 | StarCheckResult | 正则表达式分段
+  - check_resume_quality | 简历质量 | QualityCheckResult | 文本统计分析
+  - analyze_time_allocation | 时间分配 | TimeAllocationResult | 时长估算
+  - web_search（MCP） | 联网搜索 | 搜索结果 | WebSearchFallbackService
 
 **章节来源**
-- [QuestionSearchTool.java:1-28](file://src/main/java/com/tutorial/offerpilot/agent/tool/QuestionSearchTool.java#L1-L28)
-- [AnswerAnalyzeTool.java:1-105](file://src/main/java/com/tutorial/offerpilot/agent/tool/AnswerAnalyzeTool.java#L1-L105)
-- [MockInterviewTool.java:1-272](file://src/main/java/com/tutorial/offerpilot/agent/tool/MockInterviewTool.java#L1-L272)
-- [02-系统架构设计说明书.md:811-865](file://Documents/02-系统架构设计说明书.md#L811-L865)
+- [SalaryTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L31-L63)
+- [SalaryTool.java:69-99](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L69-L99)
+- [SmartSearchTool.java:39-157](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L39-L157)
 
 ## 多 Agent 协作范式
-- 父子关系图（1 主 + 7 子）
+- 父子关系图（1主+7子）
 ```mermaid
 graph TB
 Main["主Agent<br/>offerpilot_main"] --> R["简历诊断<br/>resume_coach"]
@@ -109,60 +106,66 @@ Main --> S["学习规划<br/>study_planner"]
 Main --> SA["薪资谈判<br/>salary_advisor"]
 ```
 - spawn/resume 机制
-  - 主 Agent 仅使用 spawn/resume_subagent 将任务委派给子 Agent；子 Agent 各自持有独立的过滤 Toolkit（仅含其白名单工具）。
-  - 子 Agent 可并发执行（例如 tech_evaluator 与 expression_evaluator 并行评估同一回答）。
+  - 主Agent仅使用spawn/resume_subagent将任务委派给子Agent；子Agent各自持有独立的过滤Toolkit（仅含其白名单工具）。
+  - 子Agent可并发执行（例如tech_evaluator与expression_evaluator并行评估同一回答）。
 - 工具白名单与过滤副本
-  - 主 Toolkit 作为"工具池"，子 Agent 通过 SubagentDeclaration.tools() 声明所需工具名列表；spawn 时框架构建独立副本，确保工具隔离与最小权限。
-- 7 个子 Agent 的 SubagentDeclaration 摘要
+  - 主Toolkit作为"工具池"，子Agent通过SubagentDeclaration.tools()声明所需工具名列表；spawn时框架构建独立副本，确保工具隔离与最小权限。
+- 7个子Agent的SubagentDeclaration摘要
   - resume_coach：parse_resume、evaluate_resume、search_questions
   - tech_evaluator：search_answers、analyze_answer、search_questions
   - expression_evaluator：analyze_answer
   - mock_interviewer：generate_next_question、search_answers、analyze_answer
-  - company_researcher：search_company_info、search_questions
-  - study_planner：track_progress、search_learning_resources、search_questions
-  - salary_advisor：search_salary_data、compare_offers、generate_negotiation_script
+  - company_researcher：search_company_interviews、search_questions、web_search
+  - study_planner：track_progress、prioritize_weaknesses、search_resources、search_questions、web_search
+  - salary_advisor：search_salary、compare_offers、generate_negotiation_script、web_search
 
 **章节来源**
-- [02-系统架构设计说明书.md:944-1072](file://Documents/02-系统架构设计说明书.md#L944-L1072)
+- [AgentFactory.java:318-440](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L318-L440)
 
 ## Msg 消息流转路径
-- 端到端时序（用户 → Controller → AgentFactory.getOrCreate → Agent.call/streamEvents）
+- 端到端时序（用户→Controller→AgentFactory.getOrCreate→Agent.call/streamEvents）
 ```mermaid
 sequenceDiagram
 participant U as "用户"
 participant C as "ChatController"
 participant F as "AgentFactory"
-participant A as "HarnessAgent"
+participant A as "主Agent(调度中心)"
+participant SA as "子Agent(专业分工)"
 participant K as "KnowledgeBaseService"
+participant W as "WebSearchFallbackService"
 participant DB as "MySQL/Milvus/Redis"
 U->>C : "POST /api/v1/offerpilot/chat (或 /chat/stream)"
 C->>F : "getOrCreateAgent(userId)"
-F-->>C : "返回已缓存的 HarnessAgent"
+F-->>C : "返回已缓存的HarnessAgent"
 C->>A : "call(message, ctx) 或 streamEvents(message, ctx)"
 A->>A : "Reasoning(系统提示词+记忆注入+计划模式)"
-A->>K : "调用工具(如 search_questions)"
+A->>SA : "spawn/resume_subagent 委派专业任务"
+SA->>K : "调用工具(如 search_questions)"
 K->>DB : "向量检索/标量过滤/合并排序"
 DB-->>K : "结果集"
-K-->>A : "结构化DTO"
+K-->>SA : "结构化DTO"
+SA-->>A : "子Agent处理结果"
+A->>W : "需要联网搜索时调用web_search"
+W->>W : "HTTP调用open-websearch MCP服务"
+W-->>A : "互联网搜索结果"
 A-->>C : "Msg(文本/事件流)"
 C-->>U : "SSE事件或JSON响应"
 ```
 - 关键点
-  - ChatController 负责鉴权、限流、SSE 推送与同步阻塞等待 agent.call().block()。
-  - AgentFactory 使用 Caffeine 有界缓存（最多 500 个 Agent，30 分钟未访问淘汰）避免 OOM。
-  - MemoryInjectMiddleware 在每次推理前通过 onSystemPrompt 钩子加载用户长期记忆，解决 Agent 被缓存期间记忆不更新的竞态问题。
-  - 工具层通过 KnowledgeBaseService 统一封装多租户检索（公共库 + 私有库联合检索），并在必要时触发 MCP web_search 回退。
+  - ChatController负责鉴权、限流、SSE推送与同步阻塞等待agent.call().block()。
+  - AgentFactory使用Caffeine有界缓存（最多500个Agent，30分钟未访问淘汰）避免OOM。
+  - MemoryInjectMiddleware在每次推理前通过onSystemPrompt钩子加载用户长期记忆。
+  - 工具层通过KnowledgeBaseService统一封装多租户检索，并在必要时触发WebSearchFallbackService进行MCP联网搜索兜底。
 
 **章节来源**
-- [04-实现与编码规范.md:725-794](file://Documents/04-实现与编码规范.md#L725-L794)
-- [04-实现与编码规范.md:467-603](file://Documents/04-实现与编码规范.md#L467-L603)
-- [02-系统架构设计说明书.md:800-810](file://Documents/02-系统架构设计说明书.md#L800-L810)
+- [AgentFactory.java:125-180](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L125-L180)
+- [WebSearchFallbackService.java:52-99](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L52-L99)
 
 ## 智能模型解析与动态实例化
 
 ### 四级模型优先级解析机制
 
-**更新** 新增了智能模型解析逻辑，实现了用户私有模型 > 用户默认模型 > 全局默认模型 > application.yml 回退的四级优先级体系。
+**更新** 新增了智能模型解析逻辑，实现了用户私有模型 > 用户默认模型 > 全局默认模型 > application.yml回退的四级优先级体系。
 
 #### 模型解析流程
 ```mermaid
@@ -171,7 +174,7 @@ Start(["开始解析模型"]) --> CheckPrivate["检查用户私有模型<br/>use
 CheckPrivate --> PrivateExists{"私有模型存在？"}
 PrivateExists --> |是| UsePrivate["使用私有模型配置"]
 PrivateExists --> |否| CheckGlobal["查询全局默认模型<br/>modelConfigService.getGlobalDefault()"]
-CheckGlobal --> GlobalExists{"全局默认存在？"}
+GlobalExists --> GlobalExists{"全局默认存在？"}
 GlobalExists --> |是| UseGlobal["使用全局默认配置"]
 GlobalExists --> |否| UseFallback["使用 application.yml 兜底配置"]
 UsePrivate --> MapProvider["Provider映射<br/>mapToAgentScopeProvider()"]
@@ -187,44 +190,30 @@ FallbackResolve --> ReturnModel
 
 #### 核心实现细节
 
-**ModelCreationContext 动态实例化**
-- 通过 `ModelCreationContext.builder()` 构建上下文，包含 apiKey、baseUrl 等运行时配置
-- 支持动态 baseUrl 配置，满足不同提供商的 API 地址需求
-- 集成 ApiKeyEncryption 实现 API Key 的安全解密
-
-**用户模型管理**
-- AppUser 实体新增 `privateModelConfigId` 和 `defaultModelConfigId` 字段
-- UserModelService 提供完整的用户模型配置管理接口
-- 支持私有模型的创建、设置和自动设为默认
+**ModelCreationContext动态实例化**
+- 通过ModelCreationContext.builder()构建上下文，包含apiKey、baseUrl等运行时配置
+- 支持动态baseUrl配置，满足不同提供商的API地址需求
+- 集成ApiKeyEncryption实现API Key的安全解密
 
 **安全处理机制**
-- API Key 采用加密存储，使用时动态解密
-- 支持不同提供商的认证头类型和 API 格式
+- API Key采用加密存储，使用时动态解密
+- 支持不同提供商的认证头类型和API格式
 - 模型名称验证确保配置的有效性
-
-#### 用户模型配置结构
-- **私有模型**：用户专属配置，优先级最高，支持自定义 provider 和 baseUrl
-- **用户默认模型**：用户选择的默认配置，适用于无私有模型的场景
-- **全局默认模型**：管理员配置的全局默认值，适用于无用户配置的场景
-- **application.yml 兜底**：应用级默认配置，确保系统始终可用
 
 #### 动态模型切换优势
 - **实时生效**：模型配置变更后无需重启应用
 - **细粒度控制**：支持用户级别的模型个性化配置
 - **高可用性**：多级回退机制确保系统稳定性
-- **安全性**：API Key 加密存储，防止敏感信息泄露
+- **安全性**：API Key加密存储，防止敏感信息泄露
 
 **章节来源**
-- [AgentFactory.java:274-314](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L274-L314)
-- [UserModelService.java:160-175](file://src/main/java/com/tutorial/offerpilot/service/UserModelService.java#L160-L175)
-- [AppUser.java:47-53](file://src/main/java/com/tutorial/offerpilot/entity/AppUser.java#L47-L53)
-- [AgentScopeProperties.java:22-29](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L22-L29)
+- [AgentFactory.java:489-529](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L489-L529)
 
 ## Provider 映射与依赖管理机制
 
 ### 智能 Provider 映射机制
 
-**新增** 实现了 OpenAI 兼容 Provider 的智能映射机制，解决了 AgentScope 框架中部分 Provider 缺少独立 SPI ModelProvider 的问题。
+**更新** 实现了OpenAI兼容Provider的智能映射机制，解决了AgentScope框架中部分Provider缺少独立SPI ModelProvider的问题。
 
 #### Provider 映射规则
 ```mermaid
@@ -239,58 +228,298 @@ Output --> Registry["ModelRegistry 解析"]
 
 #### 核心实现细节
 
-**OpenAI 兼容 Provider 识别**
-- 定义了 `OPENAI_COMPATIBLE_PROVIDERS` 常量集合：`{"deepseek", "siliconflow", "volcengine"}`
-- 这些 Provider 虽然使用 OpenAI 兼容 API，但 AgentScope 框架中没有独立的 SPI Provider 实现
-- 通过 `mapToAgentScopeProvider()` 方法将这些 Provider 统一映射为 `"openai"`
+**OpenAI兼容Provider识别**
+- 定义了OPENAI_COMPATIBLE_PROVIDERS常量集合：{"deepseek", "siliconflow", "volcengine"}
+- 这些Provider虽然使用OpenAI兼容API，但AgentScope框架中没有独立的SPI Provider实现
+- 通过mapToAgentScopeProvider()方法将这些Provider统一映射为"openai"
 
-**Provider 映射方法**
-- `mapToAgentScopeProvider(String provider)`：根据输入 provider 返回对应的 AgentScope providerId
-- 对于 OpenAI 兼容 Provider，返回 `"openai"` 以复用 OpenAIModelProvider
-- 对于其他 Provider，直接返回原始 provider 名称
-
-**8 个预设 Provider 完整支持**
-- **DashScope**：阿里百炼，OpenAI 兼容，使用 agentscope-extensions-model-dashscope
-- **OpenAI**：官方 OpenAI，使用 agentscope-extensions-model-openai
-- **DeepSeek**：深度求索，OpenAI 兼容，映射到 openai
-- **SiliconFlow**：硅基流动，OpenAI 兼容，映射到 openai
-- **VolcEngine**：火山引擎，OpenAI 兼容，映射到 openai
-- **Anthropic**：Claude，非 OpenAI 兼容，使用 agentscope-extensions-model-anthropic
-- **Gemini**：Google Gemini，非 OpenAI 兼容，使用 agentscope-extensions-model-gemini
-- **Ollama**：本地部署，OpenAI 兼容，使用 agentscope-extensions-model-ollama
+**8个预设Provider完整支持**
+- **DashScope**：阿里百炼，OpenAI兼容，使用agentscope-extensions-model-dashscope
+- **OpenAI**：官方OpenAI，使用agentscope-extensions-model-openai
+- **DeepSeek**：深度求索，OpenAI兼容，映射到openai
+- **SiliconFlow**：硅基流动，OpenAI兼容，映射到openai
+- **VolcEngine**：火山引擎，OpenAI兼容，映射到openai
+- **Anthropic**：Claude，非OpenAI兼容，使用agentscope-extensions-model-anthropic
+- **Gemini**：Google Gemini，非OpenAI兼容，使用agentscope-extensions-model-gemini
+- **Ollama**：本地部署，OpenAI兼容，使用agentscope-extensions-model-ollama
 
 ### 依赖管理与容错机制
 
-**更新** 完善了 Maven 依赖管理和 ModelRegistry 解析的容错机制。
+**更新** 完善了Maven依赖管理和ModelRegistry解析的容错机制。
 
-#### Maven 依赖配置
-- 在 pom.xml 中补充了 4 个缺失的 AgentScope Model Extension 依赖：
-  - `agentscope-extensions-model-dashscope`
-  - `agentscope-extensions-model-anthropic`
-  - `agentscope-extensions-model-gemini`
-  - `agentscope-extensions-model-ollama`
+#### Maven依赖配置
+- 在pom.xml中补充了4个缺失的AgentScope Model Extension依赖：
+  - agentscope-extensions-model-dashscope
+  - agentscope-extensions-model-anthropic
+  - agentscope-extensions-model-gemini
+  - agentscope-extensions-model-ollama
 
-#### ModelRegistry 解析容错
-- 添加了异常捕获机制，当 `ModelRegistry.resolve(modelId, context)` 失败时自动回退
-- 记录详细的警告日志，包含原始 provider 信息和异常详情
-- 优雅降级到 application.yml 中的兜底配置，确保系统可用性
+#### ModelRegistry解析容错
+- 添加了异常捕获机制，当ModelRegistry.resolve(modelId, context)失败时自动回退
+- 记录详细的警告日志，包含原始provider信息和异常详情
+- 优雅降级到application.yml中的兜底配置，确保系统可用性
 
 #### 默认配置优化
-- 将 application.yml 中的默认 provider 从 `deepseek` 改为 `dashscope`
-- 将默认 model-name 从 `deepseek-chat` 改为 `qwen-max`
-- 使用 DashScope 作为默认提供商，提供更好的稳定性和兼容性
-
-### 依赖管理机制优势
-
-- **扩展性强**：新增 Provider 只需添加 Maven 依赖和可选的映射规则
-- **兼容性好**：OpenAI 兼容 Provider 自动复用现有实现
-- **容错性强**：解析失败时自动回退，不影响系统正常运行
-- **配置灵活**：支持运行时动态切换不同的 Provider 和模型
-- **维护简单**：统一的映射机制降低了维护复杂度
+- 将application.yml中的默认provider从deepseek改为dashscope
+- 将默认model-name从deepseek-chat改为qwen-max
+- 使用DashScope作为默认提供商，提供更好的稳定性和兼容性
 
 **章节来源**
-- [AgentFactory.java:45-46](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L45-46)
-- [AgentFactory.java:320-325](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L320-L325)
+- [AgentFactory.java:535-540](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L535-L540)
 - [pom.xml:146-165](file://pom.xml#L146-L165)
 - [application.yml:36-39](file://src/main/resources/application.yml#L36-L39)
-- [ProviderPreset.java:13-101](file://src/main/java/com/tutorial/offerpilot/enums/ProviderPreset.java#L13-L101)
+
+## MCP 联网搜索集成
+
+### MCP Server配置与HTTP调用机制
+
+**新增** 实现了完整的MCP（Model Context Protocol）联网搜索集成，通过HTTP协议直接调用open-websearch MCP服务。
+
+#### MCP配置文件结构
+```json
+{
+  "mcpServers": {
+    "web-search": {
+      "transport": "http",
+      "url": "http://localhost:3000/mcp",
+      "env": {
+        "DEFAULT_SEARCH_ENGINE": "bing"
+      }
+    }
+  }
+}
+```
+
+#### WebSearchFallbackService核心实现
+- HTTP客户端：使用Java 11 HttpClient，配置连接超时和请求超时
+- JSON-RPC协议：遵循MCP标准的tools/call方法调用
+- 错误处理：完善的异常捕获和降级策略，失败时返回空列表
+- 响应解析：解析MCP JSON-RPC响应，提取content[].text格式的搜索结果
+
+#### 集成工作流程
+```mermaid
+flowchart TD
+Query["搜索查询"] --> KB["知识库检索"]
+KB --> NoResults{"无结果？"}
+NoResults --> |是| MCP["调用WebSearchFallbackService"]
+NoResults --> |否| Return["返回知识库结果"]
+MCP --> HTTP["HTTP POST /mcp"]
+HTTP --> JSONRPC["构建JSON-RPC请求"]
+JSONRPC --> Call["tools/call(web_search)"]
+Call --> Response["解析MCP响应"]
+Response --> Results["返回搜索结果"]
+```
+
+#### 支持的搜索引擎
+- Bing搜索：通过DEFAULT_SEARCH_ENGINE环境变量配置
+- 可扩展性：支持添加更多搜索引擎适配器
+
+**章节来源**
+- [tools.json:1-12](file://workspace/tools.json#L1-L12)
+- [WebSearchFallbackService.java:52-99](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L52-L99)
+- [WebSearchFallbackService.java:104-142](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L104-L142)
+
+## 权限控制与安全机制
+
+### PermissionContextState细粒度权限控制
+
+**新增** 实现了基于PermissionContextState的工具级访问控制，支持ALLOW/DENY规则和行为策略。
+
+#### 权限控制架构
+```mermaid
+flowchart TD
+Request["工具调用请求"] --> Permission["PermissionContextState检查"]
+Permission --> RuleMatch{"匹配权限规则？"}
+RuleMatch --> |ALLOW| Allow["允许执行"]
+RuleMatch --> |DENY| Deny["拒绝执行"]
+RuleMatch --> |None| Default["默认策略"]
+Allow --> Execute["执行工具"]
+Deny --> Error["抛出权限异常"]
+Default --> CheckBehavior["检查PermissionBehavior"]
+CheckBehavior --> ALLOW["ALLOW → 执行"]
+CheckBehavior --> DENY["DENY → 拒绝"]
+```
+
+#### 权限规则配置
+- **工具白名单**：为每个子Agent配置允许访问的工具列表
+- **行为策略**：
+  - PermissionBehavior.ALLOW：直接允许执行
+  - PermissionBehavior.DENY：明确拒绝执行
+  - PermissionBehavior.REQUIRE_APPROVAL：需要人工审批
+- **上下文感知**：支持基于用户设置、会话状态等的动态权限判断
+
+#### 安全最佳实践
+- **最小权限原则**：每个子Agent仅获得完成任务所需的最小工具集
+- **显式授权**：所有工具调用都需要明确的权限规则
+- **审计追踪**：记录所有权限决策和执行结果
+- **动态调整**：支持运行时修改权限规则
+
+**章节来源**
+- [AgentFactory.java:446-484](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L446-L484)
+
+## 六维分析工具集详解
+
+### 新增六维分析工具架构
+
+**新增** 为了提供更全面的面试评估能力，系统新增了六个专业化的分析工具，形成完整的六维分析体系。这些工具专注于不同的评估维度，每个工具都返回结构化的分析结果和LLM指导文本。
+
+#### 六维分析工具概览
+```mermaid
+graph TB
+subgraph "六维分析工具集"
+A[置信度分析<br/>ConfidenceTool]
+B[知识缺口检测<br/>KnowledgeGapTool]
+C[优先级排序<br/>PriorityRankTool]
+D[简历质量评估<br/>ResumeQualityTool]
+E[STAR方法验证<br/>StarCheckTool]
+F[时间分配分析<br/>TimeAllocationTool]
+end
+subgraph "分析维度"
+G[表达自信度]
+H[知识点覆盖]
+I[学习优先级]
+J[简历质量]
+K[STAR完整性]
+L[时间合理性]
+end
+A --> G
+B --> H
+C --> I
+D --> J
+E --> K
+F --> L
+```
+
+### 置信度分析工具（ConfidenceTool）
+
+**新增** 专门用于分析面试回答中的表达自信度，通过文本特征分析评估候选人的自信心水平。
+
+#### 核心功能
+- **口头禅密度统计**：识别和分析填充词（嗯、呃、那个等）的使用频率
+- **自我修正模式检测**：识别不确定表达和自我修正的语言模式
+- **自信度评分计算**：基于文本特征计算0-100分的自信度评分
+- **结构化结果输出**：返回详细的统计数据和分析指导
+
+#### 算法实现
+- 使用预定义的犹豫词集合进行匹配统计
+- 通过正则表达式识别自我修正模式
+- 基于密度计算的评分算法，考虑样本长度因素
+
+**章节来源**
+- [ConfidenceTool.java:36-91](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java#L36-L91)
+- [ConfidenceResult.java:18-34](file://src/main/java/com/tutorial/offerpilot/dto/tool/ConfidenceResult.java#L18-L34)
+
+### 知识缺口检测工具（KnowledgeGapTool）
+
+**新增** 结合RAG检索和词法对比，智能检测候选人回答中的知识盲区。
+
+#### 核心功能
+- **标准答案检索**：通过KnowledgeBaseService检索相关问题的优秀答案
+- **术语提取与对比**：使用正则表达式提取关键概念并进行词法对比
+- **覆盖率计算**：量化分析候选人的知识点覆盖程度
+- **语义复核指导**：提供LLM进行语义级别判断的详细指导
+
+#### 技术实现
+- 集成KnowledgeBaseService进行智能检索
+- 使用复杂的正则表达式模式匹配专业术语
+- 支持可配置的topK参数控制检索数量
+
+**章节来源**
+- [KnowledgeGapTool.java:40-88](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java#L40-L88)
+- [KnowledgeGapResult.java:18-31](file://src/main/java/com/tutorial/offerpilot/dto/tool/KnowledgeGapResult.java#L18-L31)
+
+### 优先级排序工具（PriorityRankTool）
+
+**新增** 基于高频考点和低掌握度的量化算法，为学习者提供个性化的学习优先级建议。
+
+#### 核心功能
+- **掌握度数据整合**：从KnowledgeMasteryRepository获取用户各知识点掌握情况
+- **考频统计分析**：通过SearchAnalyticsService分析各知识点的出现频率
+- **优先级计算公式**：priority = frequency × (100 - score)
+- **紧急度分级**：根据优先级分数划分HIGH/MEDIUM/LOW三个等级
+
+#### 应用场景
+- 个性化学习计划制定
+- 薄弱知识点精准定位
+- 学习效率优化建议
+
+**章节来源**
+- [PriorityRankTool.java:32-73](file://src/main/java/com/tutorial/offerpilot/agent/tool/PriorityRankTool.java#L32-L73)
+- [PriorityResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/PriorityResult.java#L18-L46)
+
+### 简历质量评估工具（ResumeQualityTool）
+
+**新增** 对简历进行多维度的质量检查，包括技能层次分类、量化数据覆盖度和技术栈罗列问题检测。
+
+#### 核心功能
+- **技能层次分析**：检测技能描述是否按熟练度分类（精通/熟悉/了解）
+- **量化数据检测**：识别项目描述中的量化指标（百分比、倍数、金额等）
+- **技术栈罗列检查**：发现仅罗列技术栈而缺乏业务成果的问题
+- **原始数据收集**：提供详细的原始文本片段供LLM进行深度分析
+
+#### 检查维度
+- 技能描述的层次性和专业性
+- 项目成果的量化和具体化
+- 技术能力与业务价值的关联度
+
+**章节来源**
+- [ResumeQualityTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/ResumeQualityTool.java#L31-L63)
+- [QualityCheckResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/QualityCheckResult.java#L18-L46)
+
+### STAR方法验证工具（StarCheckTool）
+
+**新增** 专门用于验证简历中项目经历是否符合STAR法则（情境-任务-行动-结果）的完整性要求。
+
+#### 核心功能
+- **经历段落分割**：使用正则表达式智能识别和分割项目/工作经历段落
+- **STAR要素检测**：为每段经历提供S/T/A/R四要素的检查指导
+- **完整性评估**：标记缺失的STAR要素并提供修复建议
+- **结构化输出**：返回标准化的检查结果供LLM进一步分析
+
+#### STAR法则应用
+- **Situation（情境）**：项目背景和环境描述
+- **Task（任务）**：承担的具体职责和目标
+- **Action（行动）**：采取的具体措施和方法
+- **Result（结果）**：取得的成果和影响
+
+**章节来源**
+- [StarCheckTool.java:29-33](file://src/main/java/com/tutorial/offerpilot/agent/tool/StarCheckTool.java#L29-L33)
+- [StarCheckResult.java:18-43](file://src/main/java/com/tutorial/offerpilot/dto/tool/StarCheckResult.java#L18-L43)
+
+### 时间分配分析工具（TimeAllocationTool）
+
+**新增** 根据回答文本长度估算面试时间分配，评估回答的合理性和充分性。
+
+#### 核心功能
+- **时长估算算法**：基于中文正常语速（250字/分钟）进行时长计算
+- **合理性评估**：判断回答时长是否在合理范围内（30-180秒）
+- **多维度统计**：统计过短、过长和适中的题目数量
+- **改进建议生成**：为每道题提供具体的时间管理建议
+
+#### 评估标准
+- **GOOD**：60-120秒，回答充分且精炼
+- **ACCEPTABLE**：30-60秒或120-180秒，基本可接受
+- **TOO_SHORT**：少于30秒，回答过于简略
+- **TOO_LONG**：超过180秒，回答过于冗长
+
+**章节来源**
+- [TimeAllocationTool.java:37-110](file://src/main/java/com/tutorial/offerpilot/agent/tool/TimeAllocationTool.java#L37-L110)
+- [TimeAllocationResult.java:18-51](file://src/main/java/com/tutorial/offerpilot/dto/tool/TimeAllocationResult.java#L18-L51)
+
+### 六维分析工具的协作机制
+
+**新增** 六维分析工具通过统一的架构设计，实现了高效的协作和信息共享。
+
+#### 协作模式
+- **统一接口规范**：所有工具都遵循相同的@Tool注解规范和DTO返回格式
+- **LLM指导文本**：每个工具都返回专门的指导文本，引导LLM进行深度分析
+- **结构化数据输出**：便于后续的数据分析和可视化展示
+- **可扩展架构**：支持未来新增更多分析维度的工具
+
+#### 集成方式
+- 工具通过Spring的@Component注解自动注册
+- 在AgentFactory的buildToolkit()方法中进行统一管理
+- 支持在子Agent的工具白名单中灵活配置访问权限
+
+**章节来源**
+- [AgentFactory.java:192-277](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L192-L277)

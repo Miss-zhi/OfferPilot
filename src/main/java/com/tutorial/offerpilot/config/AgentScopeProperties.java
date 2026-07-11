@@ -17,6 +17,7 @@ public class AgentScopeProperties {
     private KnowledgeConfig knowledge = new KnowledgeConfig();
     private EmbeddingConfig embedding = new EmbeddingConfig();
     private TranscriptionConfig transcription = new TranscriptionConfig();
+    private StudioConfig studio = new StudioConfig();
 
     @Data
     public static class ModelConfig {
@@ -79,5 +80,26 @@ public class AgentScopeProperties {
         private String apiKey;
         /** 转写 API Base URL（OpenAI 兼容端点） */
         private String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    }
+
+    /**
+     * AgentScope Studio 配置 — 实时监控 Agent 调用与 Trace。
+     * 接入 Studio 后可实时查看 Agent 消息、工具调用参数/耗时/返回结果、Token 消耗等。
+     * 默认关闭，开发/调试时通过 agentscope.studio.enabled=true 开启。
+     */
+    @Data
+    public static class StudioConfig {
+        /** 是否启用 Studio 集成，默认关闭 */
+        private boolean enabled = false;
+        /** Studio 服务地址（AgentScope Studio 前端 + 后端） */
+        private String url = "http://localhost:8000";
+        /** 项目名称，在 Studio 中标识本项目 */
+        private String project = "OfferPilot";
+        /** Trace 端点，默认为 {url}/v1/traces */
+        private String tracingUrl;
+        /** HTTP 请求最大重试次数 */
+        private int maxRetries = 3;
+        /** WebSocket 重连最大尝试次数 */
+        private int reconnectAttempts = 3;
     }
 }

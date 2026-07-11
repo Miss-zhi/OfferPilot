@@ -43,6 +43,6 @@ public class StudyPlan extends BaseEntity {
 
     private LocalDateTime lastUpdated;
 
-    @Column(columnDefinition = "TINYINT(1) DEFAULT 1")
+    @Column(nullable = false)
     private Boolean reminderEnabled = true;
 }

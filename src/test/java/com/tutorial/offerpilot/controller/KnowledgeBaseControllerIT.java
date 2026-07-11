@@ -303,7 +303,7 @@ class KnowledgeBaseControllerIT extends AbstractControllerIT {
         void admin_shouldUploadDoc() throws Exception {
             String token = registerAdminAndGetToken("kbupladm");
             String kbId = createTestKb(token, "上传测试库");
-            doNothing().when(ingestionService).ingestDocument(anyString());
+            doNothing().when(ingestionService).doIngestDocument(anyString());
 
             MockMultipartFile file = new MockMultipartFile(
                     "file", "test.pdf", "application/pdf", "test content".getBytes());
@@ -324,7 +324,7 @@ class KnowledgeBaseControllerIT extends AbstractControllerIT {
         void normalUser_uploadToOwnKb_shouldReturn201() throws Exception {
             String token = registerUserAndGetToken("kbupluser");
             String kbId = createTestKb(token, "我的上传库");
-            doNothing().when(ingestionService).ingestDocument(anyString());
+            doNothing().when(ingestionService).doIngestDocument(anyString());
 
             MockMultipartFile file = new MockMultipartFile(
                     "file", "notes.txt", "text/plain", "hello".getBytes());

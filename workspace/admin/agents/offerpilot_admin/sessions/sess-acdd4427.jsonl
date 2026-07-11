@@ -1,0 +1,2 @@
+{"type":"message","id":"43372231-84a3-4b2f-b390-466090b334a7","timestamp":1783773035.148737744,"role":"USER","content":"帮我搜索最新的Java面试题。"}
+{"type":"message","id":"674bffc5-69bc-9188-abe4-079fce330663","parentId":"43372231-84a3-4b2f-b390-466090b334a7","timestamp":1783773035.149909843,"role":"ASSISTANT","content":"我来帮你搜索最新的Java面试题。\n\n\n[tool_call: search({\"limit\":15,\"engines\":[\"bing\",\"baidu\",\"juejin\"],\"query\":\"2025 2026 最新 Java 面试题 大厂\"})]","toolCallId":"call_8b8b4abd56354236863187fc"}
