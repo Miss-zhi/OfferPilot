@@ -4,8 +4,8 @@
 package com.tutorial.offerpilot.enums;
 
 public enum InterviewMode {
-    TECHNICAL,
-    BEHAVIORAL,
+    TECH_DEEP,
+    BEHAVIOR,
     SYSTEM_DESIGN,
     PRESSURE
 }

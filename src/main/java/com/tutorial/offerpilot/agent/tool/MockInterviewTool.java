@@ -8,27 +8,19 @@ import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.InterviewSession;
 import com.tutorial.offerpilot.repository.InterviewQuestionRepository;
 import com.tutorial.offerpilot.repository.InterviewSessionRepository;
+import com.tutorial.offerpilot.service.InterviewModeService;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * 模拟面试出题工具 — 提供结构化出题指导，由 LLM 据此动态生成个性化面试题。
- *
- * <p>职责划分：
- * <ul>
- *   <li>本工具：查 DB（session/历史题目/得分）→ 计算进度/难度/阶段 → 输出出题指导</li>
- *   <li>LLM：根据指导信息，结合上下文、公司、岗位自由生成面试题</li>
- * </ul>
- *
- * <p>不再硬编码任何题目模板，所有自然语言内容由 LLM 生成。
  */
 @Slf4j
 @Component
@@ -38,61 +30,93 @@ public class MockInterviewTool {
     private static final Pattern SESSION_ID_PATTERN = Pattern.compile(
             "session[=:]([a-zA-Z0-9_-]+)");
 
-    /** 面试阶段轮转序列 — 仅用于默认阶段的数学轮转，不涉及任何自然语言内容 */
-    private static final List<String> PHASE_SEQUENCE = List.of(
-            "自我介绍", "专业技能", "专业技能", "项目经验",
-            "专业技能", "情景分析", "行为面试", "项目经验",
-            "专业技能", "情景分析", "行为面试", "职业规划"
-    );
-
     private final InterviewQuestionRepository questionRepo;
     private final InterviewSessionRepository sessionRepo;
+    private final InterviewModeService modeService;
+
+    private String resolveMode(String mode, String sessionId) {
+        if (mode != null && !mode.isBlank()) {
+            return mode;
+        }
+        if (sessionId != null) {
+            try {
+                InterviewSession session = sessionRepo.findBySessionId(sessionId).orElse(null);
+                if (session != null && session.getInterviewMode() != null
+                        && !session.getInterviewMode().isBlank()) {
+                    return session.getInterviewMode();
+                }
+            } catch (Exception e) {
+                log.debug("Failed to read interviewMode: {}", e.getMessage());
+            }
+        }
+        return "TECH_DEEP";
+    }
 
     @Tool(name = "generate_next_question",
-            description = "获取下一个面试题的出题指导（含岗位、阶段、难度、历史题目），由你据此生成并提问")
+            description = "获取下一个面试题的出题指导（含岗位、阶段、难度、历史题目、面试模式），由你据此生成并提问")
     public NextQuestionResult generateNextQuestion(
-            @ToolParam(name = "context", description = "当前面试上下文，包括已有问答历史和面试方向") String context) {
-        log.info("generate_next_question called: contextLen={}", context != null ? context.length() : 0);
+            @ToolParam(name = "context", description = "当前面试上下文，包括已有问答历史和面试方向") String context,
+            @ToolParam(name = "mode", description = "面试模式：TECH_DEEP/BEHAVIOR/SYSTEM_DESIGN/PRESSURE，不传则从 session 读取或默认为 TECH_DEEP", required = false) String mode,
+            @ToolParam(name = "resume_text", description = "简历文本（技术深挖模式时用于提取项目关键词）", required = false) String resumeText) {
+        log.info("generate_next_question called: contextLen={}, mode={}, hasResume={}",
+                context != null ? context.length() : 0, mode, resumeText != null);
 
         String sessionId = parseSessionId(context);
+        String effectiveMode = resolveMode(mode, sessionId);
         int questionNumber = countPreviousQuestions(context) + 1;
         String role = extractRole(context, sessionId);
-        String category = determineCategory(context, questionNumber);
-        String difficulty = determineDifficulty(context, sessionId);
+        String category = determineCategoryByMode(effectiveMode, context, questionNumber);
+        String difficulty = determineDifficultyByMode(effectiveMode, context, sessionId, questionNumber);
         Double avgScore = fetchAverageScore(sessionId);
         List<String> prevQuestions = fetchPreviousQuestions(sessionId);
-        String guidance = buildGuidance(role, category, difficulty, questionNumber, avgScore);
+
+        List<String> projectKeywords = List.of();
+        if ("TECH_DEEP".equals(effectiveMode) && resumeText != null && !resumeText.isBlank()) {
+            projectKeywords = modeService.extractProjectKeywords(resumeText);
+        }
+
+        String guidance = buildGuidanceByMode(effectiveMode, role, category, difficulty,
+                questionNumber, avgScore, projectKeywords);
 
         persistQuestion(sessionId, guidance, category, difficulty);
 
-        log.info("generate_next_question: sessionId={}, role={}, category={}, difficulty={}, qNo={}, avgScore={}",
-                sessionId, role, category, difficulty, questionNumber, avgScore);
-        return new NextQuestionResult(guidance, category, difficulty, role, questionNumber, avgScore, prevQuestions);
+        log.info("generate_next_question: sessionId={}, role={}, mode={}, category={}, difficulty={}, qNo={}, avgScore={}",
+                sessionId, role, effectiveMode, category, difficulty, questionNumber, avgScore);
+        return new NextQuestionResult(guidance, category, difficulty, role,
+                questionNumber, avgScore, prevQuestions, effectiveMode);
     }
 
-    // ======================== 出题指导构建 ========================
-
-    /**
-     * 构建出题指导文本，作为 LLM 生成面试题的指令。
-     * 不包含任何硬编码题目文本，仅提供上下文信息。
-     */
-    private String buildGuidance(String role, String category, String difficulty, int questionNumber, Double avgScore) {
+    private String buildGuidanceByMode(String mode, String role, String category,
+            String difficulty, int questionNumber, Double avgScore,
+            List<String> projectKeywords) {
         StringBuilder sb = new StringBuilder();
         sb.append("请为").append(role).append("岗位生成一道").append(category)
                 .append("类面试题，难度").append(difficulty)
                 .append("，这是第").append(questionNumber).append("题。");
 
-        if (avgScore != null) {
+        switch (mode) {
+            case "TECH_DEEP" -> {
+                if (!projectKeywords.isEmpty()) {
+                    sb.append("候选人简历涉及以下项目经历，请从中识别关键技术栈并深挖：\n")
+                            .append(String.join("\n", projectKeywords))
+                            .append("\n请围绕其中一个技术点深挖，要求候选人从原理、实践、优化三个层次回答。");
+                } else {
+                    sb.append("请深入追问技术原理和底层实现，要求候选人解释'为什么'而非'是什么'。");
+                }
+            }
+            case "BEHAVIOR" -> sb.append("请用STAR框架提问，要求候选人描述具体情境-任务-行动-结果。");
+            case "SYSTEM_DESIGN" -> sb.append("请给出一个开放型系统设计问题，要求候选人从需求分析→架构选型→详细设计逐步展开。");
+            case "PRESSURE" -> sb.append("这是压力面试模式。请提出有挑战性的问题，并在候选人回答后质疑其方案的边界条件、替代方案和潜在缺陷。");
+        }
+
+        if (avgScore != null && !avgScore.isNaN()) {
             sb.append("历史均分").append(String.format("%.0f", avgScore)).append("分。");
         }
 
-        sb.append("请根据岗位特点和面试阶段自由发挥，直接输出题目文本，不要加任何前缀说明。");
+        sb.append("直接输出题目文本，不要加前缀说明。");
         return sb.toString();
     }
 
-    // ======================== 数据查询 ========================
-
-    /** 从 session 获取历史均分。 */
     private Double fetchAverageScore(String sessionId) {
         if (sessionId == null) {
             return null;
@@ -113,7 +137,6 @@ public class MockInterviewTool {
         }
     }
 
-    /** 从 DB 获取前几题的文本，供 LLM 避免出重复题。 */
     private List<String> fetchPreviousQuestions(String sessionId) {
         if (sessionId == null) {
             return List.of();
@@ -129,12 +152,6 @@ public class MockInterviewTool {
         }
     }
 
-    // ======================== 角色提取 ========================
-
-    /**
-     * 从 session 或 context 中提取面试岗位/方向。
-     * 优先级：DB sessionType > context 模式匹配 > 默认 "该岗位"。
-     */
     private String extractRole(String context, String sessionId) {
         if (sessionId != null) {
             try {
@@ -155,7 +172,6 @@ public class MockInterviewTool {
         return "该岗位";
     }
 
-    /** 从上下文文本中解析面试岗位。 */
     private String parseRoleFromContext(String context) {
         Pattern rolePattern = Pattern.compile(
                 "([\\u4e00-\\u9fa5a-zA-Z]{2,12}(?:工程师|经理|设计师|专员|分析师|运营|开发|架构师"
@@ -173,55 +189,32 @@ public class MockInterviewTool {
         return null;
     }
 
-    // ======================== 阶段判定 ========================
-
-    /**
-     * 根据上下文关键词或面试进度确定当前阶段（类别）。
-     * 回退到 PHASE_SEQUENCE 的数学轮转，不包含任何自然语言内容。
-     */
-    private String determineCategory(String context, int questionNumber) {
+    private String determineCategoryByMode(String mode, String context, int questionNumber) {
         if (context != null) {
             String ctx = context.toLowerCase();
             if (ctx.contains("自我介绍") || ctx.contains("介绍自己") || ctx.contains("开场")) return "自我介绍";
             if (ctx.contains("技能") || ctx.contains("专业") || ctx.contains("技术") || ctx.contains("能力")) return "专业技能";
             if (ctx.contains("项目") || ctx.contains("经验") || ctx.contains("案例")) return "项目经验";
             if (ctx.contains("情景") || ctx.contains("场景") || ctx.contains("如果") || ctx.contains("假设")) return "情景分析";
-            if (ctx.contains("行为") || ctx.contains("素质") || ctx.contains("压力") || ctx.contains("冲突")) return "行为面试";
+            if (ctx.contains("行为") || ctx.contains("素质") || ctx.contains("冲突")) return "行为面试";
             if (ctx.contains("规划") || ctx.contains("目标") || ctx.contains("未来") || ctx.contains("职业")) return "职业规划";
         }
-        return PHASE_SEQUENCE.get((questionNumber - 1) % PHASE_SEQUENCE.size());
+        List<String> phases = modeService.getPhaseSequence(mode);
+        return phases.get((questionNumber - 1) % phases.size());
     }
 
-    // ======================== 难度判定 ========================
-
-    /**
-     * 基于已有得分确定下一题难度（渐进式）。
-     */
-    private String determineDifficulty(String context, String sessionId) {
+    private String determineDifficultyByMode(String mode, String context, String sessionId, int questionNumber) {
         if (context != null) {
             if (context.contains("高级") || context.contains("hard") || context.contains("深入")) return "hard";
             if (context.contains("初级") || context.contains("easy") || context.contains("入门")) return "easy";
         }
-        if (sessionId != null) {
-            Double avg = fetchAverageScore(sessionId);
-            if (avg != null && !avg.isNaN()) {
-                if (avg >= 75) return "hard";
-                if (avg >= 50) return "medium";
-                return "easy";
-            }
+        Double avg = sessionId != null ? fetchAverageScore(sessionId) : null;
+        if (avg != null && avg.isNaN()) {
+            avg = null;
         }
-        int questionNumber = countPreviousQuestions(context) + 1;
-        if (questionNumber > 5) return "hard";
-        if (questionNumber > 2) return "medium";
-        return "easy";
+        return modeService.determineDifficulty(mode, avg, questionNumber);
     }
 
-    // ======================== 持久化 ========================
-
-    /**
-     * 将出题指导持久化到 InterviewQuestion，并更新 InterviewSession.questionCount。
-     * 注意：持久化的是指导文本，实际题目由 LLM 在对话中生成。
-     */
     private void persistQuestion(String sessionId, String guidance, String category, String difficulty) {
         if (sessionId == null) {
             return;
@@ -246,8 +239,6 @@ public class MockInterviewTool {
             log.warn("Failed to persist guidance: sessionId={}, error={}", sessionId, e.getMessage());
         }
     }
-
-    // ======================== 工具方法 ========================
 
     private String parseSessionId(String context) {
         if (context == null) {

@@ -9,6 +9,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "op_study_plan", indexes = @Index(name = "idx_plan_user_id", columnList = "userId"))
@@ -36,4 +37,12 @@ public class StudyPlan extends BaseEntity {
 
     @Column(length = 32)
     private String status = "ACTIVE";
+
+    @Column(columnDefinition = "INT DEFAULT 0")
+    private Integer priorityOrder = 0;
+
+    private LocalDateTime lastUpdated;
+
+    @Column(columnDefinition = "TINYINT(1) DEFAULT 1")
+    private Boolean reminderEnabled = true;
 }

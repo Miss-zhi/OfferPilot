@@ -62,25 +62,32 @@ public class ProgressTrackTool {
     }
 
     /**
-     * 构建进度汇总指导，由 LLM 据此生成自然语言总结。
-     * 不拼接成品文本，仅提供结构化上下文。
+     * 构建进度汇总指导，以 JSON 结构化数据呈现学习进度概览。
+     * 不拼接自然语言成品文本，仅提供结构化上下文供 LLM 解读。
      */
     private String buildGuidance(long interviewCount, int averageScore, int completed, int total,
                                   Map<String, Integer> knowledgeScores) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("请根据以下学习进度数据生成一段简洁的进度总结：\n");
-        sb.append("- 面试练习次数：").append(interviewCount).append(" 次\n");
-        if (averageScore > 0) {
-            sb.append("- 平均得分：").append(averageScore).append(" 分\n");
-        }
-        if (total > 0) {
-            sb.append("- 学习计划完成度：").append(completed).append("/").append(total).append("\n");
-        }
+        StringBuilder knowledgeJson = new StringBuilder();
         if (!knowledgeScores.isEmpty()) {
-            sb.append("- 各知识点掌握度：\n");
-            knowledgeScores.forEach((k, v) -> sb.append("  · ").append(k).append("：").append(v).append(" 分\n"));
+            knowledgeJson.append("{");
+            boolean first = true;
+            for (Map.Entry<String, Integer> entry : knowledgeScores.entrySet()) {
+                if (!first) knowledgeJson.append(", ");
+                knowledgeJson.append(String.format("\"%s\": %d", entry.getKey(), entry.getValue()));
+                first = false;
+            }
+            knowledgeJson.append("}");
+        } else {
+            knowledgeJson.append("{}");
         }
-        sb.append("请用鼓励的语气输出，突出进步趋势和待加强的薄弱点。");
-        return sb.toString();
+
+        return String.format("""
+                {
+                  "面试练习次数": %d,
+                  "平均得分": %d,
+                  "学习计划完成度": "%d/%d",
+                  "各知识点掌握度": %s
+                }""",
+                interviewCount, averageScore, completed, total, knowledgeJson.toString());
     }
 }

@@ -37,4 +37,7 @@ public class NextQuestionResult {
 
     /** 前几题的文本摘要，用于 LLM 避免出重复题 */
     private List<String> previousQuestions;
+
+    /** 面试模式：TECH_DEEP/BEHAVIOR/SYSTEM_DESIGN/PRESSURE */
+    private String mode;
 }

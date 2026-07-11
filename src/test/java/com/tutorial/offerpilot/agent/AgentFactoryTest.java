@@ -83,6 +83,8 @@ class AgentFactoryTest {
     private SalaryTool salaryTool;
     @Mock
     private SmartSearchTool smartSearchTool;
+    @Mock
+    private PriorityRankTool priorityRankTool;
 
     @InjectMocks
     private AgentFactory agentFactory;
@@ -339,7 +341,7 @@ class AgentFactoryTest {
     class ToolkitBuildingTests {
 
         @Test
-        @DisplayName("Toolkit 包含 4 个分组 + 至少 12 个工具（11 业务 + meta）")
+        @DisplayName("Toolkit 包含 4 个分组 + 至少 13 个工具（12 业务 + meta）")
         void toolkit_shouldHaveCorrectGroupsAndTools() {
             try (TestMocks mocks = setupTestMocks()) {
 
@@ -358,8 +360,8 @@ class AgentFactoryTest {
 
                 // 12 tools: 11 business + meta
                 assertNotNull(toolkit.getToolNames());
-                assertTrue(toolkit.getToolNames().size() >= 12,
-                        "应有至少 12 个工具，实际: " + toolkit.getToolNames().size());
+                assertTrue(toolkit.getToolNames().size() >= 13,
+                        "应有至少 13 个工具，实际: " + toolkit.getToolNames().size());
             }
         }
 
@@ -427,7 +429,7 @@ class AgentFactoryTest {
         }
 
         @Test
-        @DisplayName("utility 分组含 2 个通用工具")
+        @DisplayName("utility 分组含 3 个通用工具")
         void utilityGroup_hasCorrectTools() {
             try (TestMocks mocks = setupTestMocks()) {
 
@@ -442,6 +444,8 @@ class AgentFactoryTest {
                         "应包含 track_progress");
                 assertTrue(toolkit.getToolNames().contains("search_salary"),
                         "应包含 search_salary");
+                assertTrue(toolkit.getToolNames().contains("prioritize_weaknesses"),
+                        "应包含 prioritize_weaknesses");
             }
         }
 
@@ -458,8 +462,8 @@ class AgentFactoryTest {
                 Toolkit toolkit = toolkitCaptor.getValue();
 
                 // Meta tool name varies by AgentScope version; verify size exceeds business count
-                assertTrue(toolkit.getToolNames().size() >= 12,
-                        "registerMetaTool 应注册 meta 工具使总数 >= 12");
+                assertTrue(toolkit.getToolNames().size() >= 13,
+                        "registerMetaTool 应注册 meta 工具使总数 >= 13");
             }
         }
     }

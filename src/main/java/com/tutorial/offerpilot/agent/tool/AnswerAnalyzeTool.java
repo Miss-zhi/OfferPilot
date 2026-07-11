@@ -16,14 +16,6 @@ import java.util.List;
 
 /**
  * 回答分析工具 — 持久化原始 QA 数据并返回评估指导，由 LLM 据此生成评分和评语。
- *
- * <p>职责划分：
- * <ul>
- *   <li>本工具：保存原始 QA 到 DB、构建评估指导文本</li>
- *   <li>LLM：根据问题和回答内容，自由生成专业深度/表达能力/覆盖度评分及亮点/不足/建议</li>
- * </ul>
- *
- * <p>不再硬编码任何评分规则、关键词匹配或评语模板。
  */
 @Slf4j
 @Component
@@ -36,32 +28,30 @@ public class AnswerAnalyzeTool {
             description = "保存面试回答并获取评估指导，由你据此分析回答质量并生成评分和评语")
     public AnswerAnalysisResult analyze(
             @ToolParam(name = "question", description = "面试问题原文") String question,
-            @ToolParam(name = "answer", description = "用户的回答内容") String answer) {
-        log.info("analyze_answer called: questionLen={}, answerLen={}",
+            @ToolParam(name = "answer", description = "用户的回答内容") String answer,
+            @ToolParam(name = "mode", description = "面试模式：PRESSURE 时额外生成追问指导", required = false) String mode) {
+        log.info("analyze_answer called: questionLen={}, answerLen={}, mode={}",
                 question != null ? question.length() : 0,
-                answer != null ? answer.length() : 0);
+                answer != null ? answer.length() : 0, mode);
 
         if (question == null || answer == null) {
             return new AnswerAnalysisResult(question, answer,
                     "问题和回答均为空，无法分析。", null, null, null,
-                    List.of(), List.of(), null);
+                    List.of(), List.of(), null, null);
         }
 
         persistRawQA(question, answer);
-        String guidance = buildGuidance(question, answer);
+        String guidance = buildGuidance(question, answer, mode);
+        String followUpGuidance = "PRESSURE".equals(mode) ? buildFollowUpGuidance() : null;
 
-        log.info("analyze_answer: guidance generated, questionLen={}, answerLen={}",
-                question.length(), answer.length());
+        log.info("analyze_answer: guidance generated, questionLen={}, answerLen={}, mode={}",
+                question.length(), answer.length(), mode);
         return new AnswerAnalysisResult(question, answer, guidance,
-                null, null, null, List.of(), List.of(), null);
+                null, null, null, List.of(), List.of(), null, followUpGuidance);
     }
 
-    /**
-     * 构建评估指导文本，指示 LLM 如何分析回答。
-     * 不包含任何硬编码评分规则或评语模板。
-     */
-    private String buildGuidance(String question, String answer) {
-        return String.format("""
+    private String buildGuidance(String question, String answer, String mode) {
+        String base = String.format("""
                 请分析以下面试回答的质量：
 
                 【面试问题】%s
@@ -81,11 +71,25 @@ public class AnswerAnalyzeTool {
                 - 不足：[列出1-3个需要改进的地方]
                 - 改进建议：[给出具体可操作的改进建议]
                 """, question, answer);
+
+        if ("PRESSURE".equals(mode)) {
+            base += buildFollowUpGuidance();
+        }
+        return base;
     }
 
-    /**
-     * 保存原始 QA 数据到 DB（不含评分，评分由 LLM 在对话中生成）。
-     */
+    private String buildFollowUpGuidance() {
+        return """
+
+                【压力追问指导】
+                请额外生成 2-3 个追问问题，以测试候选人回答的深度和抗压能力：
+                1. 追问边界条件：挑战方案的极限场景和边界情况
+                2. 追问替代方案：为什么选择该方案而非其他可行方案
+                3. 追问具体实现：要求细化某个技术决策的实现细节
+                追问应针对候选人的具体回答内容，不要使用通用模板。
+                """;
+    }
+
     private void persistRawQA(String question, String answer) {
         try {
             List<InterviewQuestion> matches = questionRepo.findByQuestionText(question);

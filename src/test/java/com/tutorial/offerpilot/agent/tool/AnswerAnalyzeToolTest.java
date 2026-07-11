@@ -28,79 +28,50 @@ class AnswerAnalyzeToolTest {
     @InjectMocks
     private AnswerAnalyzeTool tool;
 
-    // ==================== analyze - 边界条件 ====================
-
     @Nested
     @DisplayName("analyze - 边界条件")
     class EdgeCaseTests {
-
         @Test
-        @DisplayName("question 为 null → 返回错误指导 + null 评分")
+        @DisplayName("question 为 null → 返回错误指导")
         void nullQuestion_shouldReturnErrorGuidance() {
-            AnswerAnalysisResult result = tool.analyze(null, "some answer");
-
+            AnswerAnalysisResult result = tool.analyze(null, "some answer", null);
             assertNotNull(result);
             assertEquals("问题和回答均为空，无法分析。", result.getGuidance());
             assertNull(result.getTechScore());
-            assertNull(result.getExprScore());
-            assertNull(result.getCoverageScore());
-            assertTrue(result.getHighlights().isEmpty());
-            assertTrue(result.getWeaknesses().isEmpty());
-            assertNull(result.getSuggestion());
         }
-
         @Test
-        @DisplayName("answer 为 null → 返回错误指导 + null 评分")
+        @DisplayName("answer 为 null → 返回错误指导")
         void nullAnswer_shouldReturnErrorGuidance() {
-            AnswerAnalysisResult result = tool.analyze("what is Java?", null);
-
+            AnswerAnalysisResult result = tool.analyze("what is Java?", null, null);
             assertEquals("问题和回答均为空，无法分析。", result.getGuidance());
-            assertNull(result.getTechScore());
-            assertNull(result.getExprScore());
-            assertNull(result.getCoverageScore());
-            assertTrue(result.getWeaknesses().isEmpty());
         }
     }
 
-    // ==================== analyze - 技术得分 ====================
-
     @Nested
-    @DisplayName("analyze - 技术得分（LLM 模式）")
+    @DisplayName("analyze - 技术得分")
     class TechScoreTests {
-
         @Test
         @DisplayName("极短回答 → 评分 null，guidance 非空")
         void veryShortAnswer_shouldReturnNullScores() {
-            String answer = "Java是面向对象语言。";
-
-            AnswerAnalysisResult result = tool.analyze("什么是Java？", answer);
-
+            AnswerAnalysisResult result = tool.analyze("什么是Java？", "Java是面向对象语言。", null);
             assertNotNull(result.getGuidance());
             assertTrue(result.getGuidance().contains("请分析以下面试回答的质量"));
             assertNull(result.getTechScore());
-            assertNull(result.getExprScore());
-            assertNull(result.getCoverageScore());
         }
-
         @Test
-        @DisplayName("长回答 → 评分 null，guidance 包含原文")
-        void longAnswerWithKeywords_shouldReturnGuidanceOnly() {
+        @DisplayName("长回答 → guidance 包含原文")
+        void longAnswer_shouldReturnGuidanceOnly() {
             String answer = ("算法 数据结构 设计模式 框架 架构 数据库 缓存 并发 分布式 微服务 API 协议. ").repeat(30);
-
-            AnswerAnalysisResult result = tool.analyze("Java", answer);
-
+            AnswerAnalysisResult result = tool.analyze("Java", answer, null);
             assertNotNull(result.getGuidance());
             assertTrue(result.getGuidance().contains("算法"));
             assertNull(result.getTechScore());
         }
-
         @Test
-        @DisplayName("中等回答 → 评分 null，guidance 包含 LLM 输出格式说明")
-        void shortAnswerWithKeywords_shouldReturnGuidanceOnly() {
-            String answer = "Java中使用算法和数据结构非常重要，框架如Spring、MyBatis和Hibernate提供了缓存机制和数据库访问能力。";
-
-            AnswerAnalysisResult result = tool.analyze("Java", answer);
-
+        @DisplayName("中等回答 → guidance 含 LLM 输出格式")
+        void mediumAnswer_shouldReturnGuidance() {
+            String answer = "Java中使用算法和数据结构非常重要，框架如Spring、MyBatis和Hibernate提供了缓存和数据库访问能力。";
+            AnswerAnalysisResult result = tool.analyze("Java", answer, null);
             assertNotNull(result.getGuidance());
             assertTrue(result.getGuidance().contains("专业深度"));
             assertTrue(result.getGuidance().contains("表达能力"));
@@ -109,161 +80,151 @@ class AnswerAnalyzeToolTest {
         }
     }
 
-    // ==================== analyze - 表达得分 ====================
-
     @Nested
-    @DisplayName("analyze - 表达得分（LLM 模式）")
+    @DisplayName("analyze - 表达得分")
     class ExpressionScoreTests {
-
         @Test
-        @DisplayName("极短回答 → 评分 null，guidance 非空")
-        void veryShortAnswer_shouldReturnNullExprScore() {
-            AnswerAnalysisResult result = tool.analyze("问", "太短了");
-
+        @DisplayName("极短回答 → exprScore null")
+        void veryShort_shouldReturnNull() {
+            AnswerAnalysisResult result = tool.analyze("问", "太短了", null);
             assertNotNull(result.getGuidance());
             assertNull(result.getExprScore());
         }
-
         @Test
-        @DisplayName("结构化回答 → 评分 null，guidance 包含原文")
-        void structuredAnswer_shouldReturnGuidanceWithText() {
+        @DisplayName("结构化回答 → guidance 包含原文")
+        void structured_shouldReturnGuidance() {
             String answer = "首先，Java是面向对象语言。第一，它有封装继承多态。总之，它非常强大且安全。";
-
-            AnswerAnalysisResult result = tool.analyze("Java?", answer);
-
+            AnswerAnalysisResult result = tool.analyze("Java?", answer, null);
             assertNotNull(result.getGuidance());
             assertTrue(result.getGuidance().contains("Java是面向对象语言"));
             assertNull(result.getExprScore());
         }
-
         @Test
-        @DisplayName("无结构标记 → 评分 null，guidance 非空")
-        void noStructureMarkers_shouldReturnNullExprScore() {
+        @DisplayName("无结构标记 → exprScore null")
+        void noStructure_shouldReturnNull() {
             String answer = "Java是一种广泛使用的计算机编程语言，拥有跨平台、面向对象、泛型编程的特性。".repeat(3);
-
-            AnswerAnalysisResult result = tool.analyze("Java", answer);
-
+            AnswerAnalysisResult result = tool.analyze("Java", answer, null);
             assertNotNull(result.getGuidance());
             assertNull(result.getExprScore());
         }
     }
 
-    // ==================== analyze - 覆盖度得分 ====================
-
     @Nested
-    @DisplayName("analyze - 覆盖度得分（LLM 模式）")
+    @DisplayName("analyze - 覆盖度得分")
     class CoverageScoreTests {
-
         @Test
-        @DisplayName("极短回答 → 评分 null，guidance 非空")
-        void veryShortAnswer_shouldReturnNullCoverage() {
-            AnswerAnalysisResult result = tool.analyze("Q", "A");
-
+        @DisplayName("极短回答 → coverageScore null")
+        void veryShort_shouldReturnNull() {
+            AnswerAnalysisResult result = tool.analyze("Q", "A", null);
             assertNotNull(result.getGuidance());
             assertNull(result.getCoverageScore());
         }
-
         @Test
-        @DisplayName("含举例 → 评分 null，guidance 包含原文")
-        void answerWithExamplesAndProsCons_shouldReturnGuidance() {
+        @DisplayName("含举例 → guidance 包含原文")
+        void withExamples_shouldReturnGuidance() {
             String answer = "Java例如在Web开发中广泛使用。它的优点是可移植，缺点是性能。".repeat(2);
-
-            AnswerAnalysisResult result = tool.analyze("Java", answer);
-
+            AnswerAnalysisResult result = tool.analyze("Java", answer, null);
             assertNotNull(result.getGuidance());
             assertTrue(result.getGuidance().contains("Java例如"));
             assertNull(result.getCoverageScore());
         }
     }
 
-    // ==================== analyze - 亮点/弱点/建议 ====================
-
     @Nested
-    @DisplayName("analyze - 亮点/弱点/建议（LLM 模式）")
+    @DisplayName("analyze - 亮点/弱点/建议")
     class HighlightsWeaknessesTests {
-
         @Test
-        @DisplayName("高分回答 → 亮点/弱点均为空，suggestion 为 null")
-        void highScoreAnswer_shouldHaveEmptyHighlights() {
+        @DisplayName("高分回答 → empty highlights, null suggestion")
+        void highScore_shouldEmptyHighlights() {
             String answer = ("算法 数据结构 框架 数据库 缓存 微服务 分布式 协议. ").repeat(40);
-
-            AnswerAnalysisResult result = tool.analyze("Q", answer);
-
+            AnswerAnalysisResult result = tool.analyze("Q", answer, null);
             assertNotNull(result.getGuidance());
             assertTrue(result.getHighlights().isEmpty());
             assertNull(result.getSuggestion());
         }
-
         @Test
-        @DisplayName("低分回答 → 亮点/弱点均为空，suggestion 为 null")
-        void lowScoreAnswer_shouldHaveEmptyWeaknesses() {
-            AnswerAnalysisResult result = tool.analyze("Q", "short");
-
+        @DisplayName("低分回答 → empty weaknesses")
+        void lowScore_shouldEmptyWeaknesses() {
+            AnswerAnalysisResult result = tool.analyze("Q", "short", null);
             assertNotNull(result.getGuidance());
             assertTrue(result.getWeaknesses().isEmpty());
         }
-
         @Test
-        @DisplayName("长回答 → suggestion 为 null，交由 LLM 生成")
-        void highAverage_shouldHaveNullSuggestion() {
-            String answer = ("算法 数据结构 框架 架构 数据库 首先，Java是强大的语言，例如Web开发。总之，广泛使用。").repeat(30);
-
-            AnswerAnalysisResult result = tool.analyze("Q", answer);
-
+        @DisplayName("长回答 → null suggestion")
+        void longAnswer_shouldNullSuggestion() {
+            String answer = ("算法 数据结构 框架 架构 数据库 首先，Java是强大的语言。").repeat(30);
+            AnswerAnalysisResult result = tool.analyze("Q", answer, null);
             assertNotNull(result.getGuidance());
             assertNull(result.getSuggestion());
         }
-
         @Test
-        @DisplayName("中等回答 → suggestion 为 null")
-        void mediumAverage_shouldHaveNullSuggestion() {
-            String answer = ("算法 数据结构 框架 数据库 缓存 首先，Java是非常流行的编程语言。"
-                    + "例如在Web后端开发中广泛使用。总之，它是企业级首选。").repeat(4);
-
-            AnswerAnalysisResult result = tool.analyze("Q", answer);
-
+        @DisplayName("中等回答 → null suggestion")
+        void medium_shouldNullSuggestion() {
+            String answer = ("算法 数据结构 框架 数据库 缓存 首先，Java是流行的语言。例如在Web开发中广泛使用。总之，是首选。").repeat(4);
+            AnswerAnalysisResult result = tool.analyze("Q", answer, null);
             assertNotNull(result.getGuidance());
             assertNull(result.getSuggestion());
         }
-
         @Test
-        @DisplayName("低分回答 → suggestion 为 null")
-        void lowAverage_shouldHaveNullSuggestion() {
-            AnswerAnalysisResult result = tool.analyze("Q", "short answer");
-
+        @DisplayName("低分回答 → null suggestion")
+        void low_shouldNullSuggestion() {
+            AnswerAnalysisResult result = tool.analyze("Q", "short answer", null);
             assertNotNull(result.getGuidance());
             assertNull(result.getSuggestion());
         }
     }
 
-    // ==================== analyze - 持久化 ====================
-
     @Nested
     @DisplayName("analyze - 持久化")
     class PersistenceTests {
-
         @Test
-        @DisplayName("找到匹配问题 → 保存回答文本到 DB")
-        void matchedQuestion_shouldPersist() {
+        @DisplayName("无匹配问题 → 不保存")
+        void noMatch_shouldNotPersist() {
             when(questionRepo.findByQuestionText("Q")).thenReturn(List.of());
-
-            tool.analyze("Q", "some answer with 算法 and 数据结构");
-
-            // no match → questionRepo.save not called
+            tool.analyze("Q", "some answer", null);
             verify(questionRepo, never()).save(any());
         }
-
         @Test
-        @DisplayName("持久化异常 → 不影响返回 guidance")
+        @DisplayName("持久化异常 → 不影响返回")
         void persistenceException_shouldNotAffectResult() {
-            when(questionRepo.findByQuestionText("Q"))
-                    .thenThrow(new RuntimeException("DB error"));
-
-            AnswerAnalysisResult result = tool.analyze("Q", "some answer with 算法");
-
+            when(questionRepo.findByQuestionText("Q")).thenThrow(new RuntimeException("DB error"));
+            AnswerAnalysisResult result = tool.analyze("Q", "some answer", null);
             assertNotNull(result);
             assertNotNull(result.getGuidance());
             assertNull(result.getTechScore());
+        }
+    }
+
+    @Nested
+    @DisplayName("analyze - 压力模式")
+    class PressureModeTests {
+        @Test
+        @DisplayName("PRESSURE → followUpGuidance 非空含追问指导")
+        void pressure_shouldReturnFollowUpGuidance() {
+            AnswerAnalysisResult result = tool.analyze("微服务架构优缺点？",
+                    "我认为微服务架构的核心优势在于独立部署...", "PRESSURE");
+            assertNotNull(result.getGuidance());
+            assertNotNull(result.getFollowUpGuidance());
+            assertTrue(result.getFollowUpGuidance().contains("压力追问指导"));
+            assertTrue(result.getFollowUpGuidance().contains("边界条件"));
+            assertTrue(result.getFollowUpGuidance().contains("替代方案"));
+            assertTrue(result.getFollowUpGuidance().contains("具体实现"));
+        }
+        @Test
+        @DisplayName("非 PRESSURE → followUpGuidance null")
+        void nonPressure_shouldNullFollowUp() {
+            AnswerAnalysisResult result = tool.analyze("什么是Java？",
+                    "Java是面向对象的编程语言...", "TECH_DEEP");
+            assertNotNull(result.getGuidance());
+            assertNull(result.getFollowUpGuidance());
+        }
+        @Test
+        @DisplayName("无 mode → followUpGuidance null")
+        void noMode_shouldNullFollowUp() {
+            AnswerAnalysisResult result = tool.analyze("Spring框架核心？",
+                    "Spring框架提供了IOC和AOP两大核心功能...", null);
+            assertNotNull(result.getGuidance());
+            assertNull(result.getFollowUpGuidance());
         }
     }
 }

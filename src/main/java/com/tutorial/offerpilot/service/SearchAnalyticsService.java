@@ -121,4 +121,17 @@ public class SearchAnalyticsService {
 
         return stats;
     }
+
+    /**
+     * 获取各知识点在搜索日志中的出现频次，作为考频权重。
+     * 复用 findTopQueries 的聚合查询结果。
+     */
+    public Map<String, Integer> getTopicFrequency() {
+        List<Object[]> results = logRepo.findTopQueries();
+        Map<String, Integer> frequencyMap = new LinkedHashMap<>();
+        for (Object[] row : results) {
+            frequencyMap.put((String) row[0], ((Number) row[1]).intValue());
+        }
+        return frequencyMap;
+    }
 }

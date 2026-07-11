@@ -61,6 +61,7 @@ class KnowledgeBaseServiceTest {
     @Mock private WebSearchFallbackService webSearchFallbackService;
     @Mock private PersonalizedRankService personalizedRankService;
     @Mock private SearchAnalyticsService searchAnalyticsService;
+    @Mock private MilvusCollectionManager milvusCollectionManager;
 
     private KnowledgeBaseService kbService;
 
@@ -75,7 +76,8 @@ class KnowledgeBaseServiceTest {
         kbService = new KnowledgeBaseService(kbRepo, docRepo, chunkRepo,
                 milvusClient, kbConverter, vectorSearchService, questionRepo,
                 fileService, ingestionService, webSearchFallbackService,
-                personalizedRankService, searchAnalyticsService);
+                personalizedRankService, searchAnalyticsService,
+                milvusCollectionManager);
 
         normalUser = new User("testuser", "pass", List.of(new SimpleGrantedAuthority("ROLE_USER")));
         adminUser = new User("admin", "pass", List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));

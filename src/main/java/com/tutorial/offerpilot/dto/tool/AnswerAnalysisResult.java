@@ -43,4 +43,7 @@ public class AnswerAnalysisResult {
 
     /** 改进建议，由 LLM 生成，此处为空 */
     private String suggestion;
+
+    /** 压力追问指导（仅在 PRESSURE 模式下非空），指示 LLM 如何追问 */
+    private String followUpGuidance;
 }

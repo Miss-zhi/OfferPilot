@@ -5,10 +5,13 @@ package com.tutorial.offerpilot.service;
 
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.common.DataType;
+import io.milvus.v2.common.IndexParam;
 import io.milvus.v2.service.collection.request.CreateCollectionReq;
 import io.milvus.v2.service.collection.request.DropCollectionReq;
 import io.milvus.v2.service.collection.request.HasCollectionReq;
+import io.milvus.v2.service.collection.request.LoadCollectionReq;
 import io.milvus.v2.service.collection.response.ListCollectionsResp;
+import java.util.Collections;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -67,13 +70,29 @@ public class MilvusCollectionManager {
                 ))
                 .build();
 
+        // 创建向量索引（IVF_FLAT + COSINE）
+        List<IndexParam> indexParams = Collections.singletonList(
+                IndexParam.builder()
+                        .fieldName("vector")
+                        .indexType(IndexParam.IndexType.IVF_FLAT)
+                        .metricType(IndexParam.MetricType.COSINE)
+                        .extraParams(Collections.singletonMap("nlist", 128))
+                        .build());
+
         CreateCollectionReq req = CreateCollectionReq.builder()
                 .collectionName(collectionName)
                 .collectionSchema(schema)
+                .indexParams(indexParams)
                 .build();
 
         milvusClient.createCollection(req);
-        log.info("Milvus collection created: {}, dim={}", collectionName, DEFAULT_VECTOR_DIM);
+
+        // 加载 Collection 到内存
+        milvusClient.loadCollection(LoadCollectionReq.builder()
+                .collectionName(collectionName)
+                .build());
+
+        log.info("Milvus collection created and loaded: {}, dim={}", collectionName, DEFAULT_VECTOR_DIM);
         return true;
     }
 

@@ -6,6 +6,7 @@ package com.tutorial.offerpilot.repository;
 import com.tutorial.offerpilot.entity.InterviewSession;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,4 +17,6 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     List<InterviewSession> findByUserIdOrderByStartedAtDesc(String userId);
 
     long countByUserId(String userId);
+
+    long countByUserIdAndStartedAtBetween(String userId, Instant start, Instant end);
 }

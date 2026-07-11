@@ -35,27 +35,11 @@ public class SearchRequest {
 
     /**
      * 根据结构化参数构建 Milvus filter 表达式。
-     * 格式：category == "专业技能" && difficulty == "hard"
+     * 当前 category/difficulty 字段尚未加入 Milvus Collection Schema，
+     * 暂时返回 null 禁用标量过滤，改为在应用层后过滤。
+     * TODO: 待 Schema 扩展后恢复过滤逻辑。
      */
     public String buildFilterExpr() {
-        StringBuilder sb = new StringBuilder();
-        boolean hasFilter = false;
-
-        if (category != null && !category.isBlank()) {
-            sb.append("category == \"").append(escapeFilterValue(category)).append("\"");
-            hasFilter = true;
-        }
-
-        if (difficulty != null && !difficulty.isBlank()) {
-            if (hasFilter) sb.append(" && ");
-            sb.append("difficulty == \"").append(escapeFilterValue(difficulty)).append("\"");
-            hasFilter = true;
-        }
-
-        return hasFilter ? sb.toString() : null;
-    }
-
-    private String escapeFilterValue(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+        return null;
     }
 }

@@ -11,6 +11,7 @@ import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.service.collection.request.CreateCollectionReq;
 import io.milvus.v2.service.collection.request.DropCollectionReq;
 import io.milvus.v2.service.collection.request.HasCollectionReq;
+import io.milvus.v2.service.collection.request.LoadCollectionReq;
 import io.milvus.v2.service.collection.response.ListCollectionsResp;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +54,7 @@ class MilvusCollectionManagerTest {
 
             assertTrue(result);
             verify(milvusClient).createCollection(any(CreateCollectionReq.class));
+            verify(milvusClient).loadCollection(any(LoadCollectionReq.class));
         }
 
         @Test
@@ -64,6 +66,7 @@ class MilvusCollectionManagerTest {
 
             assertFalse(result);
             verify(milvusClient, never()).createCollection(any(CreateCollectionReq.class));
+            verify(milvusClient, never()).loadCollection(any(LoadCollectionReq.class));
         }
 
         @Test

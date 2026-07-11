@@ -71,6 +71,7 @@ public class AgentFactory {
     private final ResumeParseTool resumeParseTool;
     private final SalaryTool salaryTool;
     private final SmartSearchTool smartSearchTool;
+    private final PriorityRankTool priorityRankTool;
 
     /** Caffeine 有界缓存：最多 MAX_AGENTS 个 HarnessAgent，EVICT_MINUTES 分钟未访问自动淘汰 */
     private final Cache<String, HarnessAgent> agentPool = Caffeine.newBuilder()
@@ -96,7 +97,8 @@ public class AgentFactory {
                         ResumeEvaluateTool resumeEvaluateTool,
                         ResumeParseTool resumeParseTool,
                         SalaryTool salaryTool,
-                        SmartSearchTool smartSearchTool) {
+                        SmartSearchTool smartSearchTool,
+                        PriorityRankTool priorityRankTool) {
         this.properties = properties;
         this.userMemoryService = userMemoryService;
         this.userModelService = userModelService;
@@ -114,6 +116,7 @@ public class AgentFactory {
         this.resumeParseTool = resumeParseTool;
         this.salaryTool = salaryTool;
         this.smartSearchTool = smartSearchTool;
+        this.priorityRankTool = priorityRankTool;
     }
 
     /**
@@ -258,6 +261,10 @@ public class AgentFactory {
                 .tool(salaryTool)
                 .group("utility")
                 .apply();
+        toolkit.registration()
+                .tool(priorityRankTool)
+                .group("utility")
+                .apply();
 
         // ---- 注册元工具 ----
         toolkit.registerMetaTool();
@@ -357,13 +364,24 @@ public class AgentFactory {
                 .name("mock_interviewer")
                 .description("模拟面试官。当用户想进行模拟面试练习时调用。")
                 .inlineAgentsBody("""
-                        你现在是一个面试官，正在面试这位候选人。
-                        1. 调用 generate_next_question 获取题目
-                        2. 用自然的方式提问，像真实面试官一样
-                        3. 候选人回答后，根据回答质量决定是否追问
-                        4. 每 3-4 题后给一个简短反馈
-                        5. 面试结束（5-8 题后）给出总体评价
-                        保持面试官的专业感，适当给压力。""")
+                        你是面试官。面试开始前，请先确认面试模式：
+                        - 技术深挖 (TECH_DEEP)：适合技术岗，深挖项目经历和底层原理
+                        - 行为面试 (BEHAVIOR)：评估软素质和沟通能力
+                        - 系统设计 (SYSTEM_DESIGN)：考察架构设计能力
+                        - 压力面试 (PRESSURE)：测试抗压能力和临场反应
+
+                        如果没有明确指定，根据用户岗位默认选择：
+                        - 后端/算法/数据 → TECH_DEEP
+                        - 产品/运营 → BEHAVIOR
+                        - 架构师/高级开发 → SYSTEM_DESIGN
+
+                        每轮流程：
+                        1. 调用 generate_next_question(mode, context, resume_text) 获取出题指导
+                        2. 用自然语言提问
+                        3. 用户回答后调用 analyze_answer(question, answer, mode) 分析
+                        4. 压力模式下根据 followUpGuidance 追问
+                        5. 每 3-4 题给简短反馈
+                        6. 面试结束（5-8 题）输出总体评价""")
                 .tools(List.of("generate_next_question", "search_answers", "analyze_answer"))
                 .build();
     }
@@ -391,14 +409,15 @@ public class AgentFactory {
                 .inlineAgentsBody("""
                         你是一个学习计划规划师。
                         1. 调用 track_progress 查看用户的学习数据
-                        2. 识别反复出现的薄弱点
-                        3. 按优先级排序
+                        2. 调用 prioritize_weaknesses 对薄弱知识点进行量化优先级排序
+                        3. 按优先级从高到低安排学习顺序
                         4. 调用 search_resources 匹配学习资源
-                        5. 如果知识库中学习资源不足，调用 web_search 从互联网搜索
+                        5. 调用 search_questions 检索高频考题
+                        6. 如果知识库中学习资源不足，调用 web_search 从互联网搜索
                            相关教程、文档和练习材料
-                        6. 生成周学习计划
+                        7. 生成周学习计划
                         计划要实际可执行，每天 1-2 小时为宜。""")
-                .tools(List.of("track_progress", "search_resources", "search_questions", "web_search"))
+                .tools(List.of("track_progress", "prioritize_weaknesses", "search_resources", "search_questions", "web_search"))
                 .build();
     }
 
@@ -447,6 +466,8 @@ public class AgentFactory {
                         new PermissionRule("search_resources", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("track_progress",
                         new PermissionRule("track_progress", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("prioritize_weaknesses",
+                        new PermissionRule("prioritize_weaknesses", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("search_salary",
                         new PermissionRule("search_salary", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("compare_offers",

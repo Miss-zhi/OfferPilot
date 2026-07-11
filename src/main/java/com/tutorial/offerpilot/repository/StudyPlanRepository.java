@@ -13,4 +13,6 @@ public interface StudyPlanRepository extends JpaRepository<StudyPlan, Long> {
     List<StudyPlan> findByUserIdOrderByWeekStartDesc(String userId);
 
     List<StudyPlan> findByUserIdAndStatus(String userId, String status);
+
+    List<StudyPlan> findByStatus(String status);
 }

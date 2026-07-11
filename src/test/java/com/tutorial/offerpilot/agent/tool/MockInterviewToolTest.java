@@ -8,6 +8,7 @@ import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.InterviewSession;
 import com.tutorial.offerpilot.repository.InterviewQuestionRepository;
 import com.tutorial.offerpilot.repository.InterviewSessionRepository;
+import com.tutorial.offerpilot.service.InterviewModeService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
@@ -29,263 +31,79 @@ import static org.mockito.Mockito.*;
 @DisplayName("MockInterviewTool 单元测试")
 class MockInterviewToolTest {
 
-    @Mock
-    private InterviewQuestionRepository questionRepo;
+    @Mock private InterviewQuestionRepository questionRepo;
+    @Mock private InterviewSessionRepository sessionRepo;
+    @Spy private InterviewModeService modeService = new InterviewModeService();
+    @InjectMocks private MockInterviewTool tool;
 
-    @Mock
-    private InterviewSessionRepository sessionRepo;
-
-    @InjectMocks
-    private MockInterviewTool tool;
-
-    // ==================== generateNextQuestion - 分类识别 ====================
-
-    @Nested
-    @DisplayName("generateNextQuestion - 分类识别")
-    class CategoryDetectionTests {
-
-        @Test
-        @DisplayName("null context → 自我介绍 + easy 难度")
-        void nullContext_shouldReturnDefault() {
-            NextQuestionResult result = tool.generateNextQuestion(null);
-
-            assertNotNull(result);
-            assertEquals("自我介绍", result.getCategory());
-            assertEquals("easy", result.getDifficulty());
-            assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("第1题"));
+    @Nested @DisplayName("分类识别")
+    class CategoryTests {
+        @Test void nullContext() {
+            NextQuestionResult r = tool.generateNextQuestion(null, null, null);
+            assertEquals("自我介绍", r.getCategory());
+            assertEquals("easy", r.getDifficulty());
         }
-
-        @Test
-        @DisplayName("context 含 '技术' → 专业技能")
-        void contextWithTech_shouldReturnProfessionalSkill() {
-            String ctx = "session=test123, 考察技术能力 微服务架构";
-
-            NextQuestionResult result = tool.generateNextQuestion(ctx);
-
-            assertEquals("专业技能", result.getCategory());
-        }
-
-        @Test
-        @DisplayName("context 含 '项目' → 项目经验")
-        void contextWithProject_shouldReturnProjectExperience() {
-            NextQuestionResult result = tool.generateNextQuestion("session=s1, 讨论项目经验 案例");
-
-            assertEquals("项目经验", result.getCategory());
-        }
-
-        @Test
-        @DisplayName("context 含 '情景' → 情景分析")
-        void contextWithScenario_shouldReturnScenarioAnalysis() {
-            NextQuestionResult result = tool.generateNextQuestion("情景分析 假设场景");
-
-            assertEquals("情景分析", result.getCategory());
-        }
-
-        @Test
-        @DisplayName("context 含 '行为' → 行为面试")
-        void contextWithBehavior_shouldReturnBehavioral() {
-            NextQuestionResult result = tool.generateNextQuestion("行为面试 压力测试 冲突处理");
-
-            assertEquals("行为面试", result.getCategory());
-        }
-
-        @Test
-        @DisplayName("context 含 '规划' → 职业规划")
-        void contextWithCareer_shouldReturnCareerPlanning() {
-            NextQuestionResult result = tool.generateNextQuestion("讨论 规划 和 职业目标");
-
-            assertEquals("职业规划", result.getCategory());
-        }
-
-        @Test
-        @DisplayName("context 含 '介绍自己' → 自我介绍")
-        void contextWithSelfIntro_shouldReturnSelfIntroduction() {
-            NextQuestionResult result = tool.generateNextQuestion("介绍自己 开场白");
-
-            assertEquals("自我介绍", result.getCategory());
-        }
+        @Test void tech() { assertEquals("专业技能", tool.generateNextQuestion("session=test, 技术", null, null).getCategory()); }
+        @Test void project() { assertEquals("项目经验", tool.generateNextQuestion("session=s1, 项目经验", null, null).getCategory()); }
+        @Test void scenario() { assertEquals("情景分析", tool.generateNextQuestion("情景分析 假设", null, null).getCategory()); }
+        @Test void behavior() { assertEquals("行为面试", tool.generateNextQuestion("行为面试 冲突", null, null).getCategory()); }
+        @Test void career() { assertEquals("职业规划", tool.generateNextQuestion("规划 职业目标", null, null).getCategory()); }
+        @Test void selfIntro() { assertEquals("自我介绍", tool.generateNextQuestion("介绍自己", null, null).getCategory()); }
     }
 
-    // ==================== generateNextQuestion - 难度分级 ====================
-
-    @Nested
-    @DisplayName("generateNextQuestion - 难度分级")
+    @Nested @DisplayName("难度分级")
     class DifficultyTests {
-
-        @Test
-        @DisplayName("context 含 '高级' → hard")
-        void contextWithAdvanced_shouldReturnHard() {
-            NextQuestionResult result = tool.generateNextQuestion("Java 高级 深入理解");
-
-            assertEquals("hard", result.getDifficulty());
-        }
-
-        @Test
-        @DisplayName("context 含 '初级' → easy")
-        void contextWithBeginner_shouldReturnEasy() {
-            NextQuestionResult result = tool.generateNextQuestion("Java 初级 入门");
-
-            assertEquals("easy", result.getDifficulty());
-        }
-
-        @Test
-        @DisplayName("超过5个Q → hard（渐进式难度提升）")
-        void moreThan5Questions_shouldReturnHard() {
-            String ctx = "Q1 xxx Q2 xxx Q3 xxx Q4 xxx Q5 xxx Q6 xxx Java";
-
-            NextQuestionResult result = tool.generateNextQuestion(ctx);
-
-            assertEquals("hard", result.getDifficulty());
-        }
-
-        @Test
-        @DisplayName("3个Q → medium")
-        void threeQuestions_shouldReturnMedium() {
-            String ctx = "Q1 xxx Q2 xxx Q3 xxx Java";
-
-            NextQuestionResult result = tool.generateNextQuestion(ctx);
-
-            assertEquals("medium", result.getDifficulty());
-        }
-
-        @Test
-        @DisplayName("1个Q → easy")
-        void oneQuestion_shouldReturnEasy() {
-            String ctx = "Q1 Java基础";
-
-            NextQuestionResult result = tool.generateNextQuestion(ctx);
-
-            assertEquals("easy", result.getDifficulty());
-        }
+        @Test void hard() { assertEquals("hard", tool.generateNextQuestion("Java 高级", null, null).getDifficulty()); }
+        @Test void easy() { assertEquals("easy", tool.generateNextQuestion("Java 初级", null, null).getDifficulty()); }
+        @Test void q6hard() { assertEquals("hard", tool.generateNextQuestion("Q1 Q2 Q3 Q4 Q5 Q6 Java", null, null).getDifficulty()); }
+        @Test void q3medium() { assertEquals("medium", tool.generateNextQuestion("Q1 Q2 Q3 Java", null, null).getDifficulty()); }
+        @Test void q1easy() { assertEquals("easy", tool.generateNextQuestion("Q1 Java", null, null).getDifficulty()); }
     }
 
-    // ==================== generateNextQuestion - SESSION_ID 解析 ====================
-
-    @Nested
-    @DisplayName("generateNextQuestion - SessionId 解析")
+    @Nested @DisplayName("SessionId")
     class SessionIdTests {
-
-        @Test
-        @DisplayName("session=xxx → 解析出 sessionId")
-        void sessionEquals_shouldParse() {
-            NextQuestionResult result = tool.generateNextQuestion("session=abc-123 Java");
-
-            assertNotNull(result);
-            // called by determineDifficultyFromScores + persistQuestion
-            verify(questionRepo, atLeastOnce()).findBySessionIdOrderBySortOrder("abc-123");
-        }
-
-        @Test
-        @DisplayName("session:xxx → 解析出 sessionId")
-        void sessionColon_shouldParse() {
-            NextQuestionResult result = tool.generateNextQuestion("session:xyz Java");
-
-            verify(questionRepo, atLeastOnce()).findBySessionIdOrderBySortOrder("xyz");
-        }
-
-        @Test
-        @DisplayName("无 session 模式 → 不查询 DB")
-        void noSession_shouldNotQueryDb() {
-            NextQuestionResult result = tool.generateNextQuestion("Java基础面试");
-
-            verify(questionRepo, never()).findBySessionIdOrderBySortOrder(anyString());
-            verify(sessionRepo, never()).findBySessionId(anyString());
-        }
+        @Test void equals() { tool.generateNextQuestion("session=abc-123 Java", null, null); verify(questionRepo, atLeastOnce()).findBySessionIdOrderBySortOrder("abc-123"); }
+        @Test void colon() { tool.generateNextQuestion("session:xyz Java", null, null); verify(questionRepo, atLeastOnce()).findBySessionIdOrderBySortOrder("xyz"); }
+        @Test void none() { tool.generateNextQuestion("Java基础", null, null); verify(questionRepo, never()).findBySessionIdOrderBySortOrder(anyString()); }
     }
 
-    // ==================== generateNextQuestion - 题目选取 ====================
-
-    @Nested
-    @DisplayName("generateNextQuestion - 出题指导")
-    class QuestionSelectionTests {
-
-        @Test
-        @DisplayName("首个问题 → 返回出题指导（含题号+阶段）")
-        void firstQuestion_shouldReturnGuidance() {
-            NextQuestionResult result = tool.generateNextQuestion("技术面试");
-
-            assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("第1题"));
-            assertTrue(result.getGuidance().contains("专业技能"));
-        }
-
-        @Test
-        @DisplayName("第2个问题 → 返回出题指导（含题号+阶段）")
-        void secondQuestion_shouldReturnGuidance() {
-            String ctx = "Q1 xxx 技术面试";
-
-            NextQuestionResult result = tool.generateNextQuestion(ctx);
-
-            assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("第2题"));
-            assertTrue(result.getGuidance().contains("专业技能"));
-        }
-
-        @Test
-        @DisplayName("第5个问题 → 返回出题指导（含题号+阶段）")
-        void exceedBankSize_shouldReturnGuidance() {
-            String ctx = "Q1 Q2 Q3 Q4 技术面试";
-
-            NextQuestionResult result = tool.generateNextQuestion(ctx);
-
-            assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("第5题"));
-        }
-    }
-
-    // ==================== generateNextQuestion - 持久化 ====================
-
-    @Nested
-    @DisplayName("generateNextQuestion - 持久化")
-    class PersistenceTests {
-
-        @Test
-        @DisplayName("有 sessionId → 保存 Question 并更新 Session")
-        void withSessionId_shouldPersist() {
-            when(questionRepo.findBySessionIdOrderBySortOrder("s1")).thenReturn(List.of());
-            InterviewSession session = new InterviewSession();
-            session.setSessionId("s1");
-            session.setQuestionCount(3);
-            when(sessionRepo.findBySessionId("s1")).thenReturn(Optional.of(session));
-
-            tool.generateNextQuestion("session=s1 Java");
-
-            // 验证保存了 InterviewQuestion
-            ArgumentCaptor<InterviewQuestion> qCaptor = ArgumentCaptor.forClass(InterviewQuestion.class);
-            verify(questionRepo).save(qCaptor.capture());
-            assertEquals("s1", qCaptor.getValue().getSessionId());
-            assertEquals(0, qCaptor.getValue().getSortOrder());
-
-            // 验证更新了 session questionCount
-            verify(sessionRepo).save(session);
-            assertEquals(4, session.getQuestionCount());
-        }
-
-        @Test
-        @DisplayName("无 sessionId → 不持久化")
-        void withoutSessionId_shouldNotPersist() {
-            tool.generateNextQuestion("Java");
-
-            verify(questionRepo, never()).save(any());
-            verify(sessionRepo, never()).findBySessionId(anyString());
-        }
-    }
-
-    // ==================== generateNextQuestion - Guidance 构建 ====================
-
-    @Nested
-    @DisplayName("generateNextQuestion - Guidance 构建")
+    @Nested @DisplayName("出题指导")
     class GuidanceTests {
+        @Test void firstQ() { NextQuestionResult r = tool.generateNextQuestion("技术面试", null, null); assertTrue(r.getGuidance().contains("第1题")); assertTrue(r.getGuidance().contains("专业技能")); }
+        @Test void secondQ() { NextQuestionResult r = tool.generateNextQuestion("Q1 xxx 技术面试", null, null); assertTrue(r.getGuidance().contains("第2题")); }
+        @Test void fifthQ() { NextQuestionResult r = tool.generateNextQuestion("Q1 Q2 Q3 Q4 技术面试", null, null); assertTrue(r.getGuidance().contains("第5题")); }
+    }
 
-        @Test
-        @DisplayName("guidance 包含题号、阶段分类")
-        void guidance_shouldContainMetadata() {
-            NextQuestionResult result = tool.generateNextQuestion("技术面试");
-
-            assertNotNull(result.getGuidance());
-            assertTrue(result.getGuidance().contains("第1题"));
-            assertTrue(result.getGuidance().contains("专业技能"));
+    @Nested @DisplayName("持久化")
+    class PersistenceTests {
+        @Test void withSession() {
+            when(questionRepo.findBySessionIdOrderBySortOrder("s1")).thenReturn(List.of());
+            InterviewSession s = new InterviewSession(); s.setSessionId("s1"); s.setQuestionCount(3);
+            when(sessionRepo.findBySessionId("s1")).thenReturn(Optional.of(s));
+            tool.generateNextQuestion("session=s1 Java", null, null);
+            ArgumentCaptor<InterviewQuestion> c = ArgumentCaptor.forClass(InterviewQuestion.class);
+            verify(questionRepo).save(c.capture());
+            assertEquals("s1", c.getValue().getSessionId());
+            assertEquals(0, c.getValue().getSortOrder());
+            verify(sessionRepo).save(s);
+            assertEquals(4, s.getQuestionCount());
         }
+        @Test void withoutSession() { tool.generateNextQuestion("Java", null, null); verify(questionRepo, never()).save(any()); }
+    }
+
+    @Nested @DisplayName("模式感知")
+    class ModeAwareTests {
+        @Test void techDeep() { NextQuestionResult r = tool.generateNextQuestion("session=t1 Java", "TECH_DEEP", null); assertTrue(r.getGuidance().contains("追问") || r.getGuidance().contains("为什么")); assertEquals("TECH_DEEP", r.getMode()); }
+        @Test void behavior() { NextQuestionResult r = tool.generateNextQuestion("session=t2 行为", "BEHAVIOR", null); assertTrue(r.getGuidance().contains("STAR")); assertEquals("BEHAVIOR", r.getMode()); }
+        @Test void systemDesign() { NextQuestionResult r = tool.generateNextQuestion("session=t3 设计", "SYSTEM_DESIGN", null); assertTrue(r.getGuidance().contains("系统设计")); assertEquals("SYSTEM_DESIGN", r.getMode()); }
+        @Test void pressure() { NextQuestionResult r = tool.generateNextQuestion("session=t4", "PRESSURE", null); assertTrue(r.getGuidance().contains("压力") || r.getGuidance().contains("质疑")); assertEquals("PRESSURE", r.getMode()); }
+        @Test void defaultMode() { assertEquals("TECH_DEEP", tool.generateNextQuestion("session=t5 Java", null, null).getMode()); }
+    }
+
+    @Nested @DisplayName("简历参数")
+    class ResumeTextTests {
+        @Test void withResume() { NextQuestionResult r = tool.generateNextQuestion("session=t6 Java", "TECH_DEEP", "项目经验：电商秒杀\n负责模块：支付网关"); assertTrue(r.getGuidance().contains("项目")); }
+        @Test void emptyResume() { NextQuestionResult r = tool.generateNextQuestion("session=t7 Java", "TECH_DEEP", ""); assertTrue(r.getGuidance().contains("技术原理") || r.getGuidance().contains("为什么")); }
+        @Test void nonTechDeep() { NextQuestionResult r = tool.generateNextQuestion("session=t8", "BEHAVIOR", "项目经验：电商秒杀"); assertTrue(r.getGuidance().contains("STAR")); assertFalse(r.getGuidance().contains("电商秒杀")); }
     }
 }

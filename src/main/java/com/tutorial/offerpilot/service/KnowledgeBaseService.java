@@ -60,6 +60,7 @@ public class KnowledgeBaseService {
     private final WebSearchFallbackService webSearchFallbackService;
     private final PersonalizedRankService personalizedRankService;
     private final SearchAnalyticsService searchAnalyticsService;
+    private final MilvusCollectionManager milvusCollectionManager;
 
     public KnowledgeBaseService(KnowledgeBaseRepository kbRepo,
                                 DocumentRepository docRepo,
@@ -71,8 +72,9 @@ public class KnowledgeBaseService {
                                 FileService fileService,
                                 DocumentIngestionService ingestionService,
                                 WebSearchFallbackService webSearchFallbackService,
-                                                PersonalizedRankService personalizedRankService,
-                                                SearchAnalyticsService searchAnalyticsService) {
+                                PersonalizedRankService personalizedRankService,
+                                SearchAnalyticsService searchAnalyticsService,
+                                MilvusCollectionManager milvusCollectionManager) {
         this.kbRepo = kbRepo;
         this.docRepo = docRepo;
         this.chunkRepo = chunkRepo;
@@ -85,6 +87,7 @@ public class KnowledgeBaseService {
         this.webSearchFallbackService = webSearchFallbackService;
         this.personalizedRankService = personalizedRankService;
         this.searchAnalyticsService = searchAnalyticsService;
+        this.milvusCollectionManager = milvusCollectionManager;
     }
 
     @Transactional
@@ -111,6 +114,10 @@ public class KnowledgeBaseService {
         }
 
         kbRepo.save(kb);
+
+        // 同步创建 Milvus Collection（含索引并加载到内存）
+        milvusCollectionManager.createCollection(collectionName);
+
         log.info("Knowledge base created: kbId={}, visibility={}", kbId, kb.getVisibility());
         return kbConverter.toResponse(kb);
     }
