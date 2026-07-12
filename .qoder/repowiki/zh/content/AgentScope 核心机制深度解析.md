@@ -3,6 +3,8 @@
 <cite>
 **本文引用的文件**   
 - [AgentFactory.java](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java)
+- [WebSearchFallbackService.java](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java)
+- [tools.json](file://workspace/tools.json)
 - [ConfidenceTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java)
 - [KnowledgeGapTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java)
 - [PriorityRankTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/PriorityRankTool.java)
@@ -11,18 +13,16 @@
 - [TimeAllocationTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/TimeAllocationTool.java)
 - [SalaryTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java)
 - [SmartSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java)
-- [WebSearchFallbackService.java](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java)
-- [tools.json](file://workspace/tools.json)
 - [pom.xml](file://pom.xml)
 - [application.yml](file://src/main/resources/application.yml)
 </cite>
 
 ## 更新摘要
 **变更内容**   
-- **新增六维分析工具集**：扩展了面试评估的六个专业维度，包括置信度分析、知识缺口检测、优先级排序、简历质量评估、STAR方法验证和时间分配分析
-- **增强子Agent协作能力**：在现有7个子Agent基础上，新增了专门处理六维分析的协作机制
-- **完善工具注册体系**：将新的六维分析工具集成到现有的Toolkit分组架构中
-- **扩展DTO数据结构**：为每个分析维度提供专门的结果对象，支持结构化数据返回和LLM指导
+- **MCP工具注册机制重大升级**：新增registerMcpWebSearch()方法实现动态工具加载，替代传统的tools.json自动加载机制
+- **工具名称统一标准化**：MCP搜索工具从web_search统一改为search，提升命名一致性
+- **SSE流式传输支持**：新增对Server-Sent Events的完整支持，提供更高效的实时通信模式
+- **双协议兼容架构**：同时支持Streamable HTTP和SSE两种MCP传输协议，增强系统兼容性
 
 ## 目录
 - ReActAgent 推理循环
@@ -31,13 +31,13 @@
 - Msg 消息流转路径
 - 智能模型解析与动态实例化
 - Provider 映射与依赖管理机制
-- MCP 联网搜索集成
+- MCP 联网搜索集成（重大更新）
 - 权限控制与安全机制
 - 六维分析工具集详解
 
 ## ReActAgent 推理循环
 - 推理循环要点
-  - Reasoning：主Agent作为调度中心，基于系统提示词、记忆注入与计划模式进行思考，决定下一步动作（委派子Agent或调用web_search）。
+  - Reasoning：主Agent作为调度中心，基于系统提示词、记忆注入与计划模式进行思考，决定下一步动作（委派子Agent或调用search）。
   - Action：通过spawn/resume_subagent将任务委派给专业子Agent；子Agent各自持有独立的过滤Toolkit（仅含其白名单工具）。
   - Observation：工具返回结构化POJO（dto/tool/*），框架自动序列化为JSON供LLM消费；LLM据此生成自然语言输出或继续下一轮推理。
 - HarnessAgent.builder() 关键配置项
@@ -46,7 +46,7 @@
   - toolkit：注册所有本地@Tool与registerMetaTool；子Agent通过SubagentDeclaration.tools()白名单从主Toolkit获取过滤副本。
   - subagent：声明7个子Agent（resume_coach、tech_evaluator、expression_evaluator、mock_interviewer、company_researcher、study_planner、salary_advisor）。
   - permissionContext：启用细粒度权限控制，支持工具级ALLOW/DENY规则。
-  - workspace：配置MCP tools.json，启用web_search联网搜索能力。
+  - workspace：配置MCP tools.json，启用search联网搜索能力。
   - middleware：TokenMonitorMiddleware、CostControlMiddleware等监控中间件。
   - enablePlanMode/enableTaskList：计划模式与todo_write元工具。
 
@@ -64,7 +64,7 @@
   - 子Agent在spawn时从主Toolkit按tools()白名单筛选出独立副本，实现工具隔离。
 - 元工具
   - registerMetaTool()提供能力：reset_equipped_tools（动态启禁工具组）、todo_write（任务清单）等。
-- 19个本地@Tool + MCP web_search全景表
+- 19个本地@Tool + MCP search全景表
   - 名称 | 类别 | 返回类型 | 依赖注入
   - parse_resume | 简历分析 | ResumeParseResult | PDF/DOCX解析服务
   - evaluate_resume | 简历分析 | ResumeEvaluateResult | ResumeService
@@ -86,7 +86,7 @@
   - check_star | STAR检查 | StarCheckResult | 正则表达式分段
   - check_resume_quality | 简历质量 | QualityCheckResult | 文本统计分析
   - analyze_time_allocation | 时间分配 | TimeAllocationResult | 时长估算
-  - web_search（MCP） | 联网搜索 | 搜索结果 | WebSearchFallbackService
+  - search（MCP） | 联网搜索 | 搜索结果 | WebSearchFallbackService
 
 **章节来源**
 - [SalaryTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L31-L63)
@@ -115,9 +115,9 @@ Main --> SA["薪资谈判<br/>salary_advisor"]
   - tech_evaluator：search_answers、analyze_answer、search_questions
   - expression_evaluator：analyze_answer
   - mock_interviewer：generate_next_question、search_answers、analyze_answer
-  - company_researcher：search_company_interviews、search_questions、web_search
-  - study_planner：track_progress、prioritize_weaknesses、search_resources、search_questions、web_search
-  - salary_advisor：search_salary、compare_offers、generate_negotiation_script、web_search
+  - company_researcher：search_company_interviews、search_questions、search
+  - study_planner：track_progress、prioritize_weaknesses、search_resources、search_questions、search
+  - salary_advisor：search_salary、compare_offers、generate_negotiation_script、search
 
 **章节来源**
 - [AgentFactory.java:318-440](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L318-L440)
@@ -145,7 +145,7 @@ K->>DB : "向量检索/标量过滤/合并排序"
 DB-->>K : "结果集"
 K-->>SA : "结构化DTO"
 SA-->>A : "子Agent处理结果"
-A->>W : "需要联网搜索时调用web_search"
+A->>W : "需要联网搜索时调用search"
 W->>W : "HTTP调用open-websearch MCP服务"
 W-->>A : "互联网搜索结果"
 A-->>C : "Msg(文本/事件流)"
@@ -269,19 +269,74 @@ Output --> Registry["ModelRegistry 解析"]
 - [pom.xml:146-165](file://pom.xml#L146-L165)
 - [application.yml:36-39](file://src/main/resources/application.yml#L36-L39)
 
-## MCP 联网搜索集成
+## MCP 联网搜索集成（重大更新）
 
-### MCP Server配置与HTTP调用机制
+### 动态工具注册机制升级
 
-**新增** 实现了完整的MCP（Model Context Protocol）联网搜索集成，通过HTTP协议直接调用open-websearch MCP服务。
+**重大更新** 实现了全新的registerMcpWebSearch()方法，采用动态工具注册机制替代传统的tools.json自动加载方式，提供更灵活的工具管理能力。
 
-#### MCP配置文件结构
+#### 新架构设计
+```mermaid
+flowchart TD
+A[AgentFactory.buildToolkit()] --> B[registerMcpWebSearch(toolkit)]
+B --> C[McpClientBuilder.create("web-search")]
+C --> D[streamableHttpTransport(mcpUrl)]
+D --> E[buildAsync().block()]
+E --> F[toolkit.registration().mcpClient(mcpClient).apply()]
+F --> G[动态注册search工具]
+```
+
+#### 核心实现特性
+- **显式注册**：通过registerMcpWebSearch()方法主动连接MCP服务器
+- **双协议支持**：同时支持Streamable HTTP和SSE两种传输协议
+- **超时控制**：配置60秒请求超时和30秒初始化超时
+- **错误处理**：完善的异常捕获和降级策略
+- **异步构建**：使用buildAsync()配合.block()实现异步客户端构建
+
+#### 工具名称标准化
+- **统一命名**：MCP搜索工具从`web_search`统一改为`search`
+- **权限配置**：PermissionContextState中添加`addAllowRule("search", ...)`
+- **子Agent白名单**：所有需要联网搜索的子Agent都使用`search`而非`web_search`
+
+**章节来源**
+- [AgentFactory.java:491-520](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L491-L520)
+- [AgentFactory.java:483-485](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L483-L485)
+
+### SSE流式传输协议支持
+
+**新增** 完整的Server-Sent Events (SSE) 流式传输支持，提供更高效的实时通信模式。
+
+#### SSE协议实现
+```mermaid
+sequenceDiagram
+participant Client as "WebSearchFallbackService"
+participant Server as "MCP Server"
+Note over Client : 建立会话
+Client->>Server : POST /mcp (initialize)
+Server-->>Client : 200 OK + Mcp-Session-Id
+Note over Client : 发送搜索请求
+Client->>Server : POST /mcp (tools/call)
+Note over Server : SSE事件流
+Server-->>Client : event : message
+Server-->>Client : data : {json}
+Server-->>Client : event : message
+Server-->>Client : data : {json}
+Note over Client : 解析SSE数据
+```
+
+#### 核心功能特性
+- **会话管理**：自动维护Mcp-Session-Id，支持5分钟会话过期
+- **SSE解析**：智能解析`event: message\ndata: {...}`格式的响应
+- **双重兼容**：同时支持标准SSE格式和纯JSON响应
+- **错误恢复**：网络异常时的自动重试和降级处理
+
+#### 配置文件更新
 ```json
 {
   "mcpServers": {
     "web-search": {
-      "transport": "http",
-      "url": "http://localhost:3000/mcp",
+      "transport": "sse",
+      "url": "http://localhost:3000/sse",
       "env": {
         "DEFAULT_SEARCH_ENGINE": "bing"
       }
@@ -290,34 +345,31 @@ Output --> Registry["ModelRegistry 解析"]
 }
 ```
 
-#### WebSearchFallbackService核心实现
-- HTTP客户端：使用Java 11 HttpClient，配置连接超时和请求超时
-- JSON-RPC协议：遵循MCP标准的tools/call方法调用
-- 错误处理：完善的异常捕获和降级策略，失败时返回空列表
-- 响应解析：解析MCP JSON-RPC响应，提取content[].text格式的搜索结果
+**章节来源**
+- [WebSearchFallbackService.java:186-246](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L186-246)
+- [tools.json:1-12](file://workspace/tools.json#L1-12)
 
-#### 集成工作流程
-```mermaid
-flowchart TD
-Query["搜索查询"] --> KB["知识库检索"]
-KB --> NoResults{"无结果？"}
-NoResults --> |是| MCP["调用WebSearchFallbackService"]
-NoResults --> |否| Return["返回知识库结果"]
-MCP --> HTTP["HTTP POST /mcp"]
-HTTP --> JSONRPC["构建JSON-RPC请求"]
-JSONRPC --> Call["tools/call(web_search)"]
-Call --> Response["解析MCP响应"]
-Response --> Results["返回搜索结果"]
-```
+### 双协议兼容架构
 
-#### 支持的搜索引擎
-- Bing搜索：通过DEFAULT_SEARCH_ENGINE环境变量配置
-- 可扩展性：支持添加更多搜索引擎适配器
+**新增** 系统现在同时支持两种MCP传输协议，提供更高的兼容性和可靠性。
+
+#### 协议对比表
+| 特性 | Streamable HTTP | SSE流式传输 |
+|------|----------------|-------------|
+| 传输方式 | 单次HTTP请求 | 持续事件流 |
+| 适用场景 | 简单工具调用 | 实时数据推送 |
+| 性能特点 | 低延迟，高吞吐 | 实时性，低开销 |
+| 错误处理 | 完整异常传播 | 部分错误容忍 |
+| 资源占用 | 连接复用 | 长连接管理 |
+
+#### 混合使用策略
+- **AgentFactory.registerMcpWebSearch()**：使用Streamable HTTP进行工具发现
+- **WebSearchFallbackService.search()**：使用SSE进行实际搜索请求
+- **自动选择**：根据服务端能力和网络状况自动选择最优协议
 
 **章节来源**
-- [tools.json:1-12](file://workspace/tools.json#L1-L12)
-- [WebSearchFallbackService.java:52-99](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L52-L99)
-- [WebSearchFallbackService.java:104-142](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L104-L142)
+- [AgentFactory.java:497-520](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L497-520)
+- [WebSearchFallbackService.java:95-117](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L95-117)
 
 ## 权限控制与安全机制
 
@@ -444,8 +496,8 @@ F --> L
 - 学习效率优化建议
 
 **章节来源**
-- [PriorityRankTool.java:32-73](file://src/main/java/com/tutorial/offerpilot/agent/tool/PriorityRankTool.java#L32-L73)
-- [PriorityResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/PriorityResult.java#L18-L46)
+- [PriorityRankTool.java:32-73](file://src/main/java/com/tutorial/offerpilot/agent/tool/PriorityRankTool.java#L32-73)
+- [PriorityResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/PriorityResult.java#L18-46)
 
 ### 简历质量评估工具（ResumeQualityTool）
 
@@ -463,8 +515,8 @@ F --> L
 - 技术能力与业务价值的关联度
 
 **章节来源**
-- [ResumeQualityTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/ResumeQualityTool.java#L31-L63)
-- [QualityCheckResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/QualityCheckResult.java#L18-L46)
+- [ResumeQualityTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/ResumeQualityTool.java#L31-63)
+- [QualityCheckResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/QualityCheckResult.java#L18-46)
 
 ### STAR方法验证工具（StarCheckTool）
 
@@ -483,8 +535,8 @@ F --> L
 - **Result（结果）**：取得的成果和影响
 
 **章节来源**
-- [StarCheckTool.java:29-33](file://src/main/java/com/tutorial/offerpilot/agent/tool/StarCheckTool.java#L29-L33)
-- [StarCheckResult.java:18-43](file://src/main/java/com/tutorial/offerpilot/dto/tool/StarCheckResult.java#L18-L43)
+- [StarCheckTool.java:29-33](file://src/main/java/com/tutorial/offerpilot/agent/tool/StarCheckTool.java#L29-33)
+- [StarCheckResult.java:18-43](file://src/main/java/com/tutorial/offerpilot/dto/tool/StarCheckResult.java#L18-43)
 
 ### 时间分配分析工具（TimeAllocationTool）
 
@@ -503,8 +555,8 @@ F --> L
 - **TOO_LONG**：超过180秒，回答过于冗长
 
 **章节来源**
-- [TimeAllocationTool.java:37-110](file://src/main/java/com/tutorial/offerpilot/agent/tool/TimeAllocationTool.java#L37-L110)
-- [TimeAllocationResult.java:18-51](file://src/main/java/com/tutorial/offerpilot/dto/tool/TimeAllocationResult.java#L18-L51)
+- [TimeAllocationTool.java:37-110](file://src/main/java/com/tutorial/offerpilot/agent/tool/TimeAllocationTool.java#L37-110)
+- [TimeAllocationResult.java:18-51](file://src/main/java/com/tutorial/offerpilot/dto/tool/TimeAllocationResult.java#L18-51)
 
 ### 六维分析工具的协作机制
 

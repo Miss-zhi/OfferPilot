@@ -58,7 +58,6 @@ public class KnowledgeBaseService {
     private final InterviewQuestionRepository questionRepo;
     private final FileService fileService;
     private final DocumentIngestionService ingestionService;
-    private final WebSearchFallbackService webSearchFallbackService;
     private final PersonalizedRankService personalizedRankService;
     private final SearchAnalyticsService searchAnalyticsService;
     private final MilvusCollectionManager milvusCollectionManager;
@@ -73,7 +72,6 @@ public class KnowledgeBaseService {
                                 InterviewQuestionRepository questionRepo,
                                 FileService fileService,
                                 DocumentIngestionService ingestionService,
-                                WebSearchFallbackService webSearchFallbackService,
                                 PersonalizedRankService personalizedRankService,
                                 SearchAnalyticsService searchAnalyticsService,
                                 MilvusCollectionManager milvusCollectionManager,
@@ -87,7 +85,6 @@ public class KnowledgeBaseService {
         this.questionRepo = questionRepo;
         this.fileService = fileService;
         this.ingestionService = ingestionService;
-        this.webSearchFallbackService = webSearchFallbackService;
         this.personalizedRankService = personalizedRankService;
         this.searchAnalyticsService = searchAnalyticsService;
         this.milvusCollectionManager = milvusCollectionManager;
@@ -243,20 +240,6 @@ public class KnowledgeBaseService {
             }
         }
 
-        // 3. MCP 联网兜底
-        if (items.isEmpty()) {
-            List<WebSearchFallbackService.WebSearchItem> webItems = webSearchFallbackService.search(keyword);
-            for (WebSearchFallbackService.WebSearchItem webItem : webItems) {
-                QuestionSearchResult.QuestionItem item = new QuestionSearchResult.QuestionItem();
-                item.setQuestionId("web-" + UUID.randomUUID().toString().substring(0, 8));
-                item.setContent(truncate(webItem.getContent(), 200));
-                item.setCategory("联网搜索");
-                item.setRelevanceScore(0.6f);
-                item.setSource("web");
-                items.add(item);
-            }
-        }
-
         // 统计各来源命中数
         int milvusHits = (int) items.stream().filter(i -> "kb".equals(i.getSource())).count();
         int dbHits = (int) items.stream().filter(i -> "db".equals(i.getSource())).count();
@@ -348,21 +331,6 @@ public class KnowledgeBaseService {
                 item.setCategory("面试答案库");
                 item.setRelevanceScore(0.8f);
                 item.setSource("db");
-                items.add(item);
-            }
-        }
-
-        // 如果知识库和DB均无结果，MCP 联网兜底
-        if (items.isEmpty()) {
-            List<WebSearchFallbackService.WebSearchItem> webItems = webSearchFallbackService.search(keyword);
-            for (WebSearchFallbackService.WebSearchItem webItem : webItems) {
-                AnswerSearchResult.AnswerItem item = new AnswerSearchResult.AnswerItem();
-                item.setAnswerId("web-" + UUID.randomUUID().toString().substring(0, 8));
-                item.setQuestion(keyword);
-                item.setAnswer(truncate(webItem.getContent(), 300));
-                item.setCategory("联网搜索");
-                item.setRelevanceScore(0.6f);
-                item.setSource("web");
                 items.add(item);
             }
         }
@@ -474,21 +442,6 @@ public class KnowledgeBaseService {
             }
         }
 
-        // 4. MCP 联网兜底
-        if (items.isEmpty()) {
-            List<WebSearchFallbackService.WebSearchItem> webItems = webSearchFallbackService.search(companyName + " 面试经验");
-            for (WebSearchFallbackService.WebSearchItem webItem : webItems) {
-                CompanySearchResult.CompanyItem item = new CompanySearchResult.CompanyItem();
-                item.setCompanyName(companyName);
-                item.setInterviewType("综合面试");
-                item.setSummary(truncate(webItem.getContent(), 200));
-                item.setDifficulty("未知");
-                item.setRelevanceScore(0.6f);
-                item.setSource("web");
-                items.add(item);
-            }
-        }
-
         // 统计各来源命中数
         int milvusHits = (int) items.stream().filter(i -> "kb".equals(i.getSource())).count();
         int dbHits = (int) items.stream().filter(i -> "db".equals(i.getSource())).count();
@@ -560,20 +513,6 @@ public class KnowledgeBaseService {
                 }
             } catch (Exception e) {
                 log.warn("searchResources multi-collection failed: {}", e.getMessage());
-            }
-        }
-
-        // 2. MCP 联网兜底
-        if (items.isEmpty()) {
-            List<WebSearchFallbackService.WebSearchItem> webItems = webSearchFallbackService.search(topic + " 学习资源");
-            for (WebSearchFallbackService.WebSearchItem webItem : webItems) {
-                ResourceListResult.ResourceItem item = new ResourceListResult.ResourceItem();
-                item.setTitle(truncate(webItem.getContent(), 80));
-                item.setUrl("");
-                item.setType("联网搜索");
-                item.setRelevanceScore(0.6f);
-                item.setSource("web");
-                items.add(item);
             }
         }
 

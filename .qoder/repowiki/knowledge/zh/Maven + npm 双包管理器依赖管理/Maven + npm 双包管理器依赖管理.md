@@ -10,25 +10,23 @@ source_files:
     - web/package-lock.json
 ---
 
-本项目采用前后端分离架构，分别使用 Maven（后端）和 npm（前端）进行依赖声明与版本锁定。
+本仓库采用前后端分离架构，分别使用 Maven（后端 Java）与 npm（前端 React）进行第三方依赖管理。
 
-**后端（Java/Spring Boot）**
-- 构建工具：Maven，继承 spring-boot-starter-parent:3.2.5，统一 Spring 生态版本。
-- 核心依赖通过 properties 集中声明版本号：agentscope.version=2.0.0-RC5、jjwt.version=0.12.5；其余第三方库直接内联指定版本。
-- AgentScope v2 以多模块形式引入：agentscope-core、agentscope-harness 以及 OpenAI/DashScope/Anthropic/Gemini/Ollama 等模型扩展，全部对齐 ${agentscope.version}。
-- 数据库驱动按环境拆分：H2 仅 runtime（开发），MySQL Connector/J 仅 runtime（生产）。
-- Lombok 标记为 optional，并通过 spring-boot-maven-plugin 的 excludes 排除打包产物。
-- 测试依赖（Testcontainers、REST Assured、Spring Security Test）均限定 scope=test。
-- 未检出 .m2/repository 或 vendor/ 目录，依赖通过远程仓库下载，无私有镜像配置。
+## 后端：Maven（pom.xml）
+- 继承 spring-boot-starter-parent:3.2.5，通过 properties 集中声明版本：agentscope.version=2.0.0-RC5、jjwt.version=0.12.5，统一 AgentScope 各扩展模块（core/harness/openai/dashscope/anthropic/gemini/ollama/studio）的版本号。
+- 数据库驱动按环境拆分 scope：H2 为 runtime（开发），MySQL Connector/J 为 runtime（生产）。
+- Lombok、Configuration Processor 标记为 optional，不随应用打包；JWT 的 impl/jackson 子模块也设为 runtime。
+- 测试依赖（Spring Security Test、Testcontainers、REST Assured）全部限定 test scope。
+- 构建插件：spring-boot-maven-plugin 排除 Lombok 参与打包，jacoco-maven-plugin 在 test 阶段生成覆盖率报告。
+- 未配置私有 Maven 仓库或镜像，依赖直接拉取中央仓库。
 
-**前端（React/Vite）**
-- 包管理器：npm，依赖声明在 web/package.json，精确锁定在 web/package-lock.json（lockfileVersion=3）。
-- 运行时依赖包括 Ant Design 6、Axios、ECharts、Zustand、React Router DOM 等；开发依赖包含 Vite 8、TypeScript ~6.0.2、oxlint。
-- 所有依赖使用 ^ 主版本范围，由 lockfile 固定实际解析版本。
-- 未检出私有 registry 或 .npmrc 覆盖配置。
+## 前端：npm（web/package.json + package-lock.json）
+- 使用 Vite 8 + TypeScript 6 作为构建工具链，React 19 + Ant Design 6 作为 UI 栈。
+- 所有依赖以 ^ 语义化版本声明，锁定文件 package-lock.json（lockfileVersion 3）提交至仓库，确保团队与 CI 安装结果一致。
+- 无自定义 registry 或 .npmrc，默认使用 npm 官方源。
 
-**约定与建议**
-- 新增 Java 依赖时优先放入 properties 统一管理版本号，避免散落在各 dependency 中。
-- 保持 AgentScope 相关依赖版本一致，随框架升级同步更新 ${agentscope.version}。
-- 新增前端依赖后需提交 package-lock.json，确保 CI 可复现安装。
-- 当前未发现私有仓库或代理配置，若引入企业内网包需补充 Maven settings.xml 与 npm .npmrc。
+## 约定与约束
+- 新增后端依赖时优先放入 properties 统一管理版本号，避免散落在 dependencies 中重复声明。
+- 仅编译期/可选依赖使用 optional，运行期依赖不得标记 optional。
+- 新增前端依赖需同步更新 package-lock.json，禁止只改 package.json 不锁版本。
+- 暂未引入私有制品库或代理缓存，若后续接入企业内网需补充 Maven settings.xml 与 npm registry 配置。

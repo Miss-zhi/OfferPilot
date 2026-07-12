@@ -59,7 +59,6 @@ class KnowledgeBaseServiceTest {
     @Mock private InterviewQuestionRepository questionRepo;
     @Mock private FileService fileService;
     @Mock private DocumentIngestionService ingestionService;
-    @Mock private WebSearchFallbackService webSearchFallbackService;
     @Mock private PersonalizedRankService personalizedRankService;
     @Mock private SearchAnalyticsService searchAnalyticsService;
     @Mock private MilvusCollectionManager milvusCollectionManager;
@@ -77,7 +76,7 @@ class KnowledgeBaseServiceTest {
     void setUp() {
         kbService = new KnowledgeBaseService(kbRepo, docRepo, chunkRepo,
                 milvusClient, kbConverter, vectorSearchService, questionRepo,
-                fileService, ingestionService, webSearchFallbackService,
+                fileService, ingestionService,
                 personalizedRankService, searchAnalyticsService,
                 milvusCollectionManager, eventPublisher);
 
