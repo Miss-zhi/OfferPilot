@@ -84,7 +84,10 @@ public class DocumentIngestionService {
 
             // Phase 3: EMBEDDING
             updateStatus(doc, "EMBEDDING", 50);
-            String collectionName = getCollectionName(doc.getKbId());
+            KbKnowledgeBase kb = kbRepo.findByKbId(doc.getKbId())
+                    .orElseThrow(() -> new BusinessException(404, "知识库不存在: " + doc.getKbId()));
+            String collectionName = kb.getMilvusCollection();
+            String kbCategory = kb.getCategory() != null ? kb.getCategory() : "";
 
             // 批量 Embedding（减少 API 调用次数，节省成本）
             List<float[]> vectors = embeddingService.embedBatch(chunks);
@@ -112,6 +115,9 @@ public class DocumentIngestionService {
                 row.put("doc_id", docId);
                 row.put("chunk_index", i);
                 row.put("content", chunkText);
+                row.put("category", kbCategory);
+                row.put("difficulty", "");
+                row.put("position", "");
                 row.put("vector", toFloatList(vector));
                 milvusRows.add(row);
             }
@@ -134,12 +140,9 @@ public class DocumentIngestionService {
             doc.setIndexedAt(Instant.now());
 
             // 更新知识库统计信息
-            KbKnowledgeBase kb = kbRepo.findByKbId(doc.getKbId()).orElse(null);
-            if (kb != null) {
-                kb.setChunkCount(kb.getChunkCount() + chunks.size());
-                kb.setDocumentCount(kb.getDocumentCount() + 1);
-                kbRepo.save(kb);
-            }
+            kb.setChunkCount(kb.getChunkCount() + chunks.size());
+            kb.setDocumentCount(kb.getDocumentCount() + 1);
+            kbRepo.save(kb);
 
             // Phase 5: ACTIVE
             updateStatus(doc, "ACTIVE", 100);
@@ -163,12 +166,6 @@ public class DocumentIngestionService {
         doc.setProgress(progress);
         docRepo.save(doc);
         log.info("Document status: docId={}, status={}, progress={}%", doc.getDocId(), status, progress);
-    }
-
-    private String getCollectionName(String kbId) {
-        return kbRepo.findByKbId(kbId)
-                .map(KbKnowledgeBase::getMilvusCollection)
-                .orElseThrow(() -> new BusinessException(404, "知识库不存在: " + kbId));
     }
 
     private String hashContent(String content) {

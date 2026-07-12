@@ -104,7 +104,7 @@ services:
   web-search:
     image: ghcr.io/aas-ee/open-web-search:latest
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
       DEFAULT_SEARCH_ENGINE: bing
     restart: unless-stopped

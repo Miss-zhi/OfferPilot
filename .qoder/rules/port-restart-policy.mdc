@@ -1,0 +1,50 @@
+---
+trigger: always_on
+description: 项目重启时禁止修改默认端口号，端口被占用时先检查旧进程后关闭再启动
+---
+
+# 端口占用处理规范
+
+## 强制约束
+
+当需要重启 OfferPilot 服务（后端或前端）时，**绝对禁止**通过修改端口号来绕过端口占用问题。
+
+## 默认端口
+
+| 服务 | 默认端口 |
+|------|----------|
+| 后端（Spring Boot） | `8080` |
+| 前端（Vite） | `5173` |
+
+## 端口被占用时的标准处理流程
+
+1. **检查占用进程**：使用 `fuser` 或 `ss` 确认是哪个进程占用了端口：
+   ```bash
+   fuser -n tcp <端口号>
+   # 或
+   ss -tlnp | grep <端口号>
+   ```
+
+2. **判断是否为旧应用**：检查进程命令行是否包含 `OfferPilot`、`spring-boot`、`vite`、`node` 等关键词：
+   ```bash
+   ps -p <PID> -o args=
+   ```
+
+3. **关闭旧进程**：确认为旧的 OfferPilot 进程后，先关闭再启动：
+   ```bash
+   kill <PID>
+   # 如果无响应，使用：
+   kill -9 <PID>
+   ```
+
+4. **验证端口释放**：确认端口已释放后再启动新进程：
+   ```bash
+   fuser -n tcp <端口号>  # 应无输出
+   ```
+
+## 禁止行为
+
+- ❌ 修改 `application.properties` / `application.yml` 中的 `server.port`
+- ❌ 修改 `vite.config.ts` 中的 `server.port`
+- ❌ 使用 `--server.port=xxxx` 启动参数临时换端口
+- ❌ 修改 `.env` 中的端口配置

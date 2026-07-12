@@ -10,6 +10,12 @@ export const API = {
   // 对话
   CHAT_SYNC: '/v1/offerpilot/chat',
   CHAT_STREAM: '/v1/offerpilot/chat/stream',
+  CHAT_CONFIRM: '/v1/offerpilot/chat/confirm',
+  // 会话历史
+  CHAT_SESSIONS: '/v1/offerpilot/chat/sessions',
+  CHAT_SESSION: (id: string) => `/v1/offerpilot/chat/sessions/${id}`,
+  CHAT_SESSION_MESSAGES: (id: string) => `/v1/offerpilot/chat/sessions/${id}/messages`,
+  CHAT_SESSION_SEARCH: '/v1/offerpilot/chat/sessions/search',
   // 文件上传
   UPLOAD: '/v1/offerpilot/upload',
   // 报告
@@ -26,12 +32,6 @@ export const API = {
   KB_DOC_PROGRESS: (kbId: string, docId: string) => `/v1/kb/${kbId}/docs/${docId}/progress`,
   KB_DOC_REINDEX: (kbId: string, docId: string) => `/v1/kb/${kbId}/docs/${docId}/reindex`,
   KB_SEARCH: (kbId: string) => `/v1/kb/${kbId}/search`,
-  // 成长追踪
-  PROGRESS: '/v1/offerpilot/progress',
-  // 薪资
-  SALARY_SEARCH: '/v1/offerpilot/salary/search',
-  SALARY_COMPARE: '/v1/offerpilot/salary/compare',
-  SALARY_NEGOTIATION_SCRIPT: '/v1/offerpilot/salary/negotiation-script',
   // 模型管理
   ADMIN_MODEL_CONFIGS: '/v1/admin/models',
   ADMIN_MODEL_CONFIG: (id: number) => `/v1/admin/models/${id}`,

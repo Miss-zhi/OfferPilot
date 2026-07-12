@@ -95,6 +95,26 @@ class DocumentChunkerTest {
             assertTrue(chunks.get(0).contains("标题一"));
             assertTrue(chunks.get(1).contains("标题二"));
         }
+
+        @Test
+        @DisplayName("短段落 → 不会返回空列表（回归：>100 阈值导致空列表）")
+        void chunkByHeading_shortSections_shouldNotReturnEmpty() {
+            String text = """
+                    ## 标题一
+                    短内容。
+                    ## 标题二
+                    短内容。
+                    ## 标题三
+                    短内容。
+                    """;
+            List<String> chunks = chunker.chunk(text, "BY_HEADING");
+
+            assertFalse(chunks.isEmpty(), "短段落不应返回空列表");
+            assertEquals(3, chunks.size());
+            assertTrue(chunks.get(0).contains("标题一"));
+            assertTrue(chunks.get(1).contains("标题二"));
+            assertTrue(chunks.get(2).contains("标题三"));
+        }
     }
 
     // ==================== BY_SIZE 策略 ====================

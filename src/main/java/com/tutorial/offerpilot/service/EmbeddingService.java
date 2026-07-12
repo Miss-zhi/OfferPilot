@@ -34,6 +34,9 @@ public class EmbeddingService {
 
     private static final int MAX_BATCH_SIZE = 10;
 
+    /** DashScope text-embedding-v3 单条文本最大输入 Token 数 8192，字符上限保守设为 6000 */
+    private static final int MAX_INPUT_LENGTH = 6000;
+
     public EmbeddingService(AgentScopeProperties properties) {
         AgentScopeProperties.EmbeddingConfig embeddingConfig = properties.getEmbedding();
 
@@ -89,8 +92,24 @@ public class EmbeddingService {
      * 单批次 Embedding（最多 MAX_BATCH_SIZE 条）。
      */
     private List<float[]> embedSingleBatch(List<String> texts) {
+        // 防御性校验：确保每条文本长度在 API 允许范围 [1, 8192] 内
+        List<String> validated = new ArrayList<>(texts.size());
+        for (int i = 0; i < texts.size(); i++) {
+            String text = texts.get(i);
+            if (text == null || text.isBlank()) {
+                log.warn("Embedding batch text[{}] is empty/blank, using placeholder", i);
+                validated.add(" ");
+            } else if (text.length() > MAX_INPUT_LENGTH) {
+                log.warn("Embedding batch text[{}] length {} exceeds max {}, truncating",
+                        i, text.length(), MAX_INPUT_LENGTH);
+                validated.add(text.substring(0, MAX_INPUT_LENGTH));
+            } else {
+                validated.add(text);
+            }
+        }
+
         try {
-            String requestBody = buildRequestBody(texts);
+            String requestBody = buildRequestBody(validated);
             log.debug("Embedding request: texts={}, bodySize={}", texts.size(), requestBody.length());
 
             Request request = new Request.Builder()

@@ -18,6 +18,7 @@ public class AgentScopeProperties {
     private EmbeddingConfig embedding = new EmbeddingConfig();
     private TranscriptionConfig transcription = new TranscriptionConfig();
     private StudioConfig studio = new StudioConfig();
+    private RerankConfig rerank = new RerankConfig();
 
     @Data
     public static class ModelConfig {
@@ -101,5 +102,31 @@ public class AgentScopeProperties {
         private int maxRetries = 3;
         /** WebSocket 重连最大尝试次数 */
         private int reconnectAttempts = 3;
+    }
+
+    /**
+     * Rerank 独立配置 — 与 LLM Model 解耦。
+     * 用于检索后精排阶段，对多路召回结果进行语义相关性重排序。
+     * 默认使用 DashScope qwen3-rerank（OpenAI 兼容端点）。
+     * 未配置 api-key 时自动回退使用 agentscope.model.api-key。
+     */
+    @Data
+    public static class RerankConfig {
+        /** 是否启用 Rerank 精排，默认启用；关闭后 RRF 融合结果直接返回 */
+        private boolean enabled = true;
+        /** Rerank API Key，未配置时回退使用 agentscope.model.api-key */
+        private String apiKey;
+        /** Rerank 模型名称，默认 qwen3-rerank */
+        private String modelName = "qwen3-rerank";
+        /** Rerank API Base URL（OpenAI 兼容端点） */
+        private String baseUrl = "https://dashscope.aliyuncs.com/compatible-api/v1/reranks";
+        /** 精排后保留数量 */
+        private int topN = 5;
+        /** 最低相关性分数阈值，低于此值的结果将被过滤 */
+        private double scoreThreshold = 0.0;
+        /** HTTP 连接超时（秒） */
+        private int connectTimeout = 10;
+        /** HTTP 读取超时（秒） */
+        private int readTimeout = 30;
     }
 }

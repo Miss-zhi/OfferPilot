@@ -18,7 +18,6 @@
 - [src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java](file://src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java)
 - [src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java](file://src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java)
 - [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java)
-- [src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java)
 - [src/main/java/com/tutorial/offerpilot/service/PersonalizedRankService.java](file://src/main/java/com/tutorial/offerpilot/service/PersonalizedRankService.java)
 - [src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java](file://src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java)
 - [src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java](file://src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java)
@@ -33,19 +32,18 @@
 
 ## 更新摘要
 **变更内容**   
-- 修复了RAG核心Bug：MilvusCollectionManager集成到KnowledgeBaseService自动创建Collection并加载索引
-- 修复了SearchRequest.buildFilterExpr移除不存在的字段引用问题
-- 优化了多Collection合并检索流程，提升搜索性能
-- 增强了Redis缓存机制，为搜索接口添加5分钟TTL缓存
-- 新增了完整的搜索工具链增强功能，包括统一智能搜索入口、多维度过滤、联网兜底和个性化排序
+- 移除了WebSearchFallbackService类及其相关网络搜索兜底逻辑（删除287行代码）
+- KnowledgeBaseService搜索方法简化为仅本地数据检索（Milvus + DB LIKE）
+- 网络搜索决策权完全回归到Agent/LLM层的SmartSearchTool和MCP协议
+- 更新了搜索流程图和相关章节，明确服务层职责边界
 
 ## 目录
 - RAG 全链路架构
 - 离线阶段：数据预处理与入库
 - 离线阶段：向量索引构建
 - 在线阶段：多路召回
-- 新增：搜索工具链全面增强
-- 新增：RAG核心Bug修复
+- 搜索工具链增强架构
+- RAG核心Bug修复
 
 ## RAG 全链路架构
 > 绘制离线入库 + 在线检索的双阶段 Mermaid 流程图
@@ -154,15 +152,15 @@ Ingest-->>Admin : 进度轮询返回 ACTIVE
 ```
 
 图示来源
-- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-L78)
+- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-78)
 - [src/main/java/com/tutorial/offerpilot/entity/KbChunk.java:38-39](file://src/main/java/com/tutorial/offerpilot/entity/KbChunk.java#L38-39)
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:509-558](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L509-L558)
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:509-558](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L509-558)
 - [src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentIngestionService.java:46-145](file://src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentIngestionService.java#L46-L145)
 
 章节来源
-- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-L78)
+- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-78)
 - [src/main/java/com/tutorial/offerpilot/entity/KbChunk.java:38-39](file://src/main/java/com/tutorial/offerpilot/entity/KbChunk.java#L38-39)
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:509-558](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L509-L558)
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:509-558](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L509-558)
 
 ## 在线阶段：多路召回
 > 绘制多路召回策略的 Mermaid 流程图（向量检索 + 标量过滤 + 关联检索 → 合并去重排序）
@@ -225,23 +223,23 @@ KnowledgeBaseService --> MilvusCollectionManager : "管理 Collection 生命周�
 
 图示来源
 - [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:157-201](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L157-201)
-- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-L78)
-- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:51-57](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L51-L57)
-- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-L78)
+- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-78)
+- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:51-57](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L51-57)
+- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-78)
 
 章节来源
 - [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:157-201](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L157-201)
-- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-L78)
-- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:51-57](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L51-L57)
-- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-L78)
+- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-78)
+- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:51-57](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L51-57)
+- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-78)
 
-## 新增：搜索工具链全面增强
+## 搜索工具链增强架构
 
-> 详细说明搜索工具链的全面增强功能，包括多维过滤、智能查询扩展、联网兜底机制和个性化排序
+> 详细说明搜索工具链的架构设计，包括统一智能搜索入口、多维度过滤、智能查询扩展和个性化排序
 
 ### 统一智能搜索入口 - SmartSearchTool
 
-**更新** 新增 SmartSearchTool 作为统一的智能搜索入口，替代多个独立的 search_* 工具，提供单一 smart_search 方法。该工具内部自动完成意图分类、Query 扩展、多路召回和结果整合。
+**更新** SmartSearchTool 作为统一的智能搜索入口，替代多个独立的 search_* 工具，提供单一 smart_search 方法。该工具内部自动完成意图分类、Query 扩展、多路召回和结果整合。
 
 ```mermaid
 flowchart TD
@@ -262,7 +260,7 @@ Dedup --> Result["统一搜索结果"]
 ```
 
 **图示来源**
-- [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java:39-157](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L39-L157)
+- [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java:39-157](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L39-157)
 
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java:1-209](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L1-L209)
@@ -286,7 +284,7 @@ Dedup --> Result["统一搜索结果"]
 
 ### Query 扩展服务 - QueryExpansionService
 
-**更新** 新增 QueryExpansionService 服务，通过 DashScope LLM 将短关键词扩展为多条检索短语，提升召回率和多样性。
+**更新** QueryExpansionService 服务，通过 DashScope LLM 将短关键词扩展为多条检索短语，提升召回率和多样性。
 
 - **LLM 扩展模式**：使用 qwen-turbo 轻量模型，将输入 "Java并发" 扩展为 ["Java并发面试题", "线程池原理", "volatile关键字"]
 - **规则模式兜底**：当 LLM 调用失败时，自动回退到规则模式，通过关键词拆分和常见后缀追加生成扩展词
@@ -295,21 +293,9 @@ Dedup --> Result["统一搜索结果"]
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java:1-214](file://src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java#L1-L214)
 
-### 联网搜索兜底 - WebSearchFallbackService
-
-**更新** 新增 WebSearchFallbackService 作为最终的兜底机制，当 Milvus 向量检索和 DB LIKE 检索均无结果时，通过 HTTP 直接调用 open-websearch MCP 服务的 web_search 工具。
-
-- **MCP 协议通信**：使用 JSON-RPC 2.0 协议与 MCP Server 通信
-- **超时保护**：连接超时 5 秒，请求超时 10 秒
-- **容错机制**：任何异常都返回空列表，不影响主流程
-- **结果标准化**：将 MCP 响应转换为统一的 WebSearchItem 格式
-
-**章节来源**
-- [src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java:1-150](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L1-L150)
-
 ### 个性化排序 - PersonalizedRankService
 
-**更新** 新增 PersonalizedRankService 服务，基于用户的知识掌握薄弱点对搜索结果进行加权排序，弱项相关的题目优先展示。
+**更新** PersonalizedRankService 服务，基于用户的知识掌握薄弱点对搜索结果进行加权排序，弱项相关的题目优先展示。
 
 - **薄弱点识别**：从 KnowledgeMastery 表中筛选 score < 60 的知识点
 - **权重提升**：相关内容的原始分数 × 1.3 倍
@@ -320,7 +306,7 @@ Dedup --> Result["统一搜索结果"]
 
 ### 搜索分析与统计
 
-**更新** 新增完整的搜索分析和统计功能，包括搜索日志记录、反馈收集和统计分析。
+**更新** 完整的搜索分析和统计功能，包括搜索日志记录、反馈收集和统计分析。
 
 #### 搜索日志记录
 - **SearchToolLog 实体**：记录每次搜索的详细指标，包括各来源命中数和耗时
@@ -342,9 +328,9 @@ Dedup --> Result["统一搜索结果"]
 - [src/main/java/com/tutorial/offerpilot/repository/SearchToolLogRepository.java:1-21](file://src/main/java/com/tutorial/offerpilot/repository/SearchToolLogRepository.java#L1-L21)
 - [src/main/java/com/tutorial/offerpilot/controller/SearchStatsController.java:1-34](file://src/main/java/com/tutorial/offerpilot/controller/SearchStatsController.java#L1-L34)
 
-### 增强的搜索流程
+### 简化的搜索流程
 
-**更新** KnowledgeBaseService 中的搜索方法现已集成新的搜索工具链增强功能：
+**更新** KnowledgeBaseService 中的搜索方法现已简化为仅本地数据检索，移除了自动网络搜索回退逻辑：
 
 ```mermaid
 sequenceDiagram
@@ -352,19 +338,13 @@ participant User as "用户"
 participant KB as "KnowledgeBaseService"
 participant VS as "VectorSearchService"
 participant DB as "数据库"
-participant MCP as "WebSearchFallbackService"
 User->>KB : searchQuestions(SearchRequest)
 KB->>VS : 多集合向量检索
 alt 有结果
 VS-->>KB : 向量匹配结果
 else 无结果
 KB->>DB : LIKE 模糊查询
-alt 有结果
 DB-->>KB : 数据库匹配结果
-else 无结果
-KB->>MCP : MCP 联网搜索
-MCP-->>KB : 网络搜索结果
-end
 end
 KB->>KB : 个性化排序 + 去重
 KB-->>User : 最终搜索结果
@@ -376,7 +356,7 @@ KB-->>User : 最终搜索结果
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:50-249](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L50-L249)
 
-## 新增：RAG核心Bug修复
+## RAG核心Bug修复
 
 > 详细说明RAG系统中三个阻断性Bug的修复方案和实施细节
 
@@ -508,4 +488,4 @@ agentscope:
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java:58-66](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L58-66)
 - [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-58)
-- [src/main/resources/application.yml:57-63](file://src/main/resources/application.yml#L57-63)
+- [src/main/resources/application.yml:57-63](file://src/main/resources/application.yml#L57-L63)

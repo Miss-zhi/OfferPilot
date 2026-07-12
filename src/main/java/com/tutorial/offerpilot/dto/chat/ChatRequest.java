@@ -13,4 +13,7 @@ public class ChatRequest {
     private String message;
 
     private String sessionId;
+
+    /** 面试模式：TECH_DEEP / BEHAVIOR / SYSTEM_DESIGN / PRESSURE（仅面试场景） */
+    private String mode;
 }

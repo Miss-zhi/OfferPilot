@@ -3,6 +3,7 @@
  */
 package com.tutorial.offerpilot.service;
 
+import com.tutorial.offerpilot.config.AgentScopeProperties;
 import com.tutorial.offerpilot.converter.KbConverter;
 import com.tutorial.offerpilot.dto.kb.CreateKbRequest;
 import com.tutorial.offerpilot.dto.kb.DocDetailResponse;
@@ -11,6 +12,7 @@ import com.tutorial.offerpilot.dto.kb.DocResponse;
 import com.tutorial.offerpilot.dto.kb.KbResponse;
 import com.tutorial.offerpilot.dto.kb.KbStatsResponse;
 import com.tutorial.offerpilot.dto.kb.SearchTestResponse;
+import com.tutorial.offerpilot.dto.kb.SearchTestResponse.SearchHit;
 import com.tutorial.offerpilot.dto.tool.AnswerSearchResult;
 import com.tutorial.offerpilot.dto.tool.CompanySearchResult;
 import com.tutorial.offerpilot.dto.tool.QuestionSearchResult;
@@ -31,9 +33,11 @@ import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.service.collection.request.DropCollectionReq;
 import io.milvus.v2.service.vector.request.DeleteReq;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,8 +45,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -58,10 +64,12 @@ public class KnowledgeBaseService {
     private final InterviewQuestionRepository questionRepo;
     private final FileService fileService;
     private final DocumentIngestionService ingestionService;
-    private final PersonalizedRankService personalizedRankService;
     private final SearchAnalyticsService searchAnalyticsService;
     private final MilvusCollectionManager milvusCollectionManager;
     private final ApplicationEventPublisher eventPublisher;
+    private final RerankerService rerankerService;
+    private final Executor searchExecutor;
+    private final AgentScopeProperties agentScopeProperties;
 
     public KnowledgeBaseService(KnowledgeBaseRepository kbRepo,
                                 DocumentRepository docRepo,
@@ -72,10 +80,12 @@ public class KnowledgeBaseService {
                                 InterviewQuestionRepository questionRepo,
                                 FileService fileService,
                                 DocumentIngestionService ingestionService,
-                                PersonalizedRankService personalizedRankService,
                                 SearchAnalyticsService searchAnalyticsService,
                                 MilvusCollectionManager milvusCollectionManager,
-                                ApplicationEventPublisher eventPublisher) {
+                                ApplicationEventPublisher eventPublisher,
+                                RerankerService rerankerService,
+                                @Qualifier("searchExecutor") Executor searchExecutor,
+                                AgentScopeProperties agentScopeProperties) {
         this.kbRepo = kbRepo;
         this.docRepo = docRepo;
         this.chunkRepo = chunkRepo;
@@ -85,10 +95,12 @@ public class KnowledgeBaseService {
         this.questionRepo = questionRepo;
         this.fileService = fileService;
         this.ingestionService = ingestionService;
-        this.personalizedRankService = personalizedRankService;
         this.searchAnalyticsService = searchAnalyticsService;
         this.milvusCollectionManager = milvusCollectionManager;
         this.eventPublisher = eventPublisher;
+        this.rerankerService = rerankerService;
+        this.searchExecutor = searchExecutor;
+        this.agentScopeProperties = agentScopeProperties;
     }
 
     @Transactional
@@ -174,6 +186,7 @@ public class KnowledgeBaseService {
 
     /**
      * 搜索面试题库（简化接口，向后兼容）。
+     * 仅搜索 PUBLIC KB，不包含用户私有 KB。
      */
     @Cacheable(value = "searchQuestions", key = "#keyword")
     public QuestionSearchResult searchQuestions(String keyword) {
@@ -185,87 +198,50 @@ public class KnowledgeBaseService {
 
     /**
      * 搜索面试题库（结构化参数）。
-     * 优先从 Milvus 知识库多 Collection 合并检索，支持元数据过滤，
-     * 若无结果则回退到 InterviewQuestion 表，最终 MCP 联网兜底。
+     * 多路并行召回：Milvus 向量检索（PUBLIC + 用户 PRIVATE KBs） + MySQL LIKE → RRF 融合 → Rerank 精排。
      */
+    @Cacheable(value = "searchQuestions", key = "#req.keywords + '_' + #req.category + '_' + #req.difficulty + '_' + #req.position + '_' + #req.userId")
     public QuestionSearchResult searchQuestions(SearchRequest req) {
         String keyword = req.getKeywords();
+        String userId = req.getUserId();
         String filterExpr = req.buildFilterExpr();
-        int topK = Math.min(req.getTopK() != null ? req.getTopK() : 10, 50);
-        List<QuestionSearchResult.QuestionItem> items = new ArrayList<>();
+        int recallTopK = 20; // 召回阶段多取一些候选
+        int dbLimit = 10;
         long start = System.currentTimeMillis();
 
-        // 1. 收集 PUBLIC 知识库的 Collection，批量合并检索
-        List<KbKnowledgeBase> kbs = kbRepo.findByVisibility("PUBLIC");
-        List<String> collections = new ArrayList<>();
-        for (KbKnowledgeBase kb : kbs) {
-            if (kb.getMilvusCollection() != null && !kb.getMilvusCollection().isBlank()) {
-                collections.add(kb.getMilvusCollection());
-            }
-        }
+        // Phase 1: 并行召回
+        CompletableFuture<List<SearchHit>> futureA = CompletableFuture.supplyAsync(
+                () -> milvusRecall(keyword, recallTopK, filterExpr, userId), searchExecutor);
+        CompletableFuture<List<SearchHit>> futureB = CompletableFuture.supplyAsync(
+                () -> mysqlRecallQuestions(keyword, dbLimit), searchExecutor);
 
-        if (!collections.isEmpty()) {
-            try {
-                List<SearchTestResponse.SearchHit> hits = vectorSearchService.searchMultiCollection(
-                        collections, keyword, topK, topK * 2, filterExpr);
-                for (SearchTestResponse.SearchHit hit : hits) {
-                    QuestionSearchResult.QuestionItem item = new QuestionSearchResult.QuestionItem();
-                    item.setQuestionId(hit.getDocId());
-                    item.setContent(truncate(hit.getContent(), 200));
-                    item.setCategory("通用");
-                    item.setRelevanceScore(1.0f / (1.0f + hit.getScore()));
-                    item.setSource("kb");
-                    items.add(item);
-                }
-            } catch (Exception e) {
-                log.warn("searchQuestions multi-collection failed: {}", e.getMessage());
-            }
-        }
+        List<SearchHit> pathA = getQuietly(futureA, "Milvus");
+        List<SearchHit> pathB = getQuietly(futureB, "MySQL");
 
-        // 2. 回退到数据库面试题表
-        if (items.isEmpty()) {
-            List<InterviewQuestion> questions = questionRepo.findAll().stream()
-                    .filter(q -> q.getQuestionText() != null
-                            && q.getQuestionText().toLowerCase().contains(keyword.toLowerCase()))
-                    .limit(10)
-                    .toList();
-            for (InterviewQuestion q : questions) {
-                QuestionSearchResult.QuestionItem item = new QuestionSearchResult.QuestionItem();
-                item.setQuestionId(q.getQuestionId());
-                item.setContent(q.getQuestionText());
-                item.setCategory("面试题库");
-                item.setRelevanceScore(0.8f);
-                item.setSource("db");
-                items.add(item);
-            }
-        }
+        // Phase 2: RRF 融合
+        long fusionStart = System.currentTimeMillis();
+        List<SearchHit> fused = VectorSearchService.fuseWithRRF(List.of(pathA, pathB));
+        long fusionMs = System.currentTimeMillis() - fusionStart;
 
-        // 统计各来源命中数
+        // Phase 3: Rerank 精排
+        List<QuestionSearchResult.QuestionItem> items = rerankAndBuildQuestions(keyword, fused);
+
+        // 统计
         int milvusHits = (int) items.stream().filter(i -> "kb".equals(i.getSource())).count();
         int dbHits = (int) items.stream().filter(i -> "db".equals(i.getSource())).count();
-        int webHits = (int) items.stream().filter(i -> "web".equals(i.getSource())).count();
-
-        // 个性化加权排序
-        if (req.getUserId() != null && !req.getUserId().isBlank() && !items.isEmpty()) {
-            Set<String> weakPoints = personalizedRankService.getWeakPoints(req.getUserId());
-            for (QuestionSearchResult.QuestionItem item : items) {
-                item.setRelevanceScore(personalizedRankService.boostScore(
-                        item.getContent(), item.getRelevanceScore(), weakPoints));
-            }
-            items.sort((a, b) -> Float.compare(b.getRelevanceScore(), a.getRelevanceScore()));
-        }
+        int webHits = 0;
 
         long latencyMs = System.currentTimeMillis() - start;
-        // 异步记录搜索日志
-        searchAnalyticsService.logSearch(req.getUserId(), keyword, "searchQuestions",
+        searchAnalyticsService.logSearch(userId, keyword, "searchQuestions",
                 milvusHits, dbHits, webHits, latencyMs);
-        log.info("searchQuestions: keyword={}, results={}, source={}, latencyMs={}",
-                keyword, items.size(), items.isEmpty() ? "none" : items.get(0).getSource(), latencyMs);
+        log.info("searchQuestions: keyword={}, userId={}, milvusHits={}, dbHits={}, fused={}, results={}, fusionMs={}, latencyMs={}",
+                keyword, userId, pathA.size(), pathB.size(), fused.size(), items.size(), fusionMs, latencyMs);
         return new QuestionSearchResult(items.size(), items);
     }
 
     /**
      * 搜索优秀面试答案库（简化接口，向后兼容）。
+     * 仅搜索 PUBLIC KB，不包含用户私有 KB。
      */
     @Cacheable(value = "searchAnswers", key = "#keyword")
     public AnswerSearchResult searchAnswers(String keyword) {
@@ -277,90 +253,47 @@ public class KnowledgeBaseService {
 
     /**
      * 搜索优秀面试答案库（结构化参数）。
-     * 优先从 Milvus 多 Collection 合并检索，支持元数据过滤，
-     * 若无结果则回退到已有面试记录，最终 MCP 联网兜底。
+     * 多路并行召回：Milvus 向量检索（PUBLIC + 用户 PRIVATE KBs） + MySQL LIKE（仅含有答案的题目）→ RRF 融合 → Rerank 精排。
      */
+    @Cacheable(value = "searchAnswers", key = "#req.keywords + '_' + #req.category + '_' + #req.difficulty + '_' + #req.position + '_' + #req.userId")
     public AnswerSearchResult searchAnswers(SearchRequest req) {
         String keyword = req.getKeywords();
+        String userId = req.getUserId();
         String filterExpr = req.buildFilterExpr();
-        int topK = Math.min(req.getTopK() != null ? req.getTopK() : 10, 50);
-        List<AnswerSearchResult.AnswerItem> items = new ArrayList<>();
+        int recallTopK = 20;
+        int dbLimit = 10;
         long start = System.currentTimeMillis();
 
-        // 1. 收集 PUBLIC 知识库的 Collection，批量合并检索
-        List<KbKnowledgeBase> kbs = kbRepo.findByVisibility("PUBLIC");
-        List<String> collections = new ArrayList<>();
-        for (KbKnowledgeBase kb : kbs) {
-            if (kb.getMilvusCollection() != null && !kb.getMilvusCollection().isBlank()) {
-                collections.add(kb.getMilvusCollection());
-            }
-        }
+        // Phase 1: 并行召回
+        CompletableFuture<List<SearchHit>> futureA = CompletableFuture.supplyAsync(
+                () -> milvusRecall(keyword, recallTopK, filterExpr, userId), searchExecutor);
+        CompletableFuture<List<SearchHit>> futureB = CompletableFuture.supplyAsync(
+                () -> mysqlRecallAnswers(keyword, dbLimit), searchExecutor);
 
-        if (!collections.isEmpty()) {
-            try {
-                List<SearchTestResponse.SearchHit> hits = vectorSearchService.searchMultiCollection(
-                        collections, keyword, topK, topK * 2, filterExpr);
-                for (SearchTestResponse.SearchHit hit : hits) {
-                    AnswerSearchResult.AnswerItem item = new AnswerSearchResult.AnswerItem();
-                    item.setAnswerId(hit.getDocId());
-                    item.setQuestion(keyword);
-                    item.setAnswer(truncate(hit.getContent(), 300));
-                    item.setCategory("通用");
-                    item.setRelevanceScore(1.0f / (1.0f + hit.getScore()));
-                    item.setSource("kb");
-                    items.add(item);
-                }
-            } catch (Exception e) {
-                log.warn("searchAnswers multi-collection failed: {}", e.getMessage());
-            }
-        }
+        List<SearchHit> pathA = getQuietly(futureA, "Milvus");
+        List<SearchHit> pathB = getQuietly(futureB, "MySQL");
 
-        // 如果知识库没有结果，尝试从已有面试记录中查找答案
-        if (items.isEmpty()) {
-            List<InterviewQuestion> questions = questionRepo.findAll().stream()
-                    .filter(q -> q.getAnswerText() != null && !q.getAnswerText().isBlank())
-                    .filter(q -> q.getQuestionText() != null
-                            && q.getQuestionText().toLowerCase().contains(keyword.toLowerCase()))
-                    .limit(10)
-                    .toList();
-            for (InterviewQuestion q : questions) {
-                AnswerSearchResult.AnswerItem item = new AnswerSearchResult.AnswerItem();
-                item.setAnswerId(q.getQuestionId());
-                item.setQuestion(q.getQuestionText());
-                item.setAnswer(truncate(q.getAnswerText(), 300));
-                item.setCategory("面试答案库");
-                item.setRelevanceScore(0.8f);
-                item.setSource("db");
-                items.add(item);
-            }
-        }
+        // Phase 2: RRF 融合
+        List<SearchHit> fused = VectorSearchService.fuseWithRRF(List.of(pathA, pathB));
 
-        // 统计各来源命中数
+        // Phase 3: Rerank 精排
+        List<AnswerSearchResult.AnswerItem> items = rerankAndBuildAnswers(keyword, fused);
+
         int milvusHits = (int) items.stream().filter(i -> "kb".equals(i.getSource())).count();
         int dbHits = (int) items.stream().filter(i -> "db".equals(i.getSource())).count();
-        int webHits = (int) items.stream().filter(i -> "web".equals(i.getSource())).count();
-
-        // 个性化加权排序
-        if (req.getUserId() != null && !req.getUserId().isBlank() && !items.isEmpty()) {
-            Set<String> weakPoints = personalizedRankService.getWeakPoints(req.getUserId());
-            for (AnswerSearchResult.AnswerItem item : items) {
-                item.setRelevanceScore(personalizedRankService.boostScore(
-                        item.getAnswer(), item.getRelevanceScore(), weakPoints));
-            }
-            items.sort((a, b) -> Float.compare(b.getRelevanceScore(), a.getRelevanceScore()));
-        }
+        int webHits = 0;
 
         long latencyMs = System.currentTimeMillis() - start;
-        // 异步记录搜索日志
-        searchAnalyticsService.logSearch(req.getUserId(), keyword, "searchAnswers",
+        searchAnalyticsService.logSearch(userId, keyword, "searchAnswers",
                 milvusHits, dbHits, webHits, latencyMs);
-        log.info("searchAnswers: keyword={}, results={}, source={}, latencyMs={}",
-                keyword, items.size(), items.isEmpty() ? "none" : items.get(0).getSource(), latencyMs);
+        log.info("searchAnswers: keyword={}, userId={}, milvusHits={}, dbHits={}, results={}, latencyMs={}",
+                keyword, userId, pathA.size(), pathB.size(), items.size(), latencyMs);
         return new AnswerSearchResult(items.size(), items);
     }
 
     /**
      * 搜索公司面试经验（简化接口，向后兼容）。
+     * 仅搜索 PUBLIC KB，不包含用户私有 KB。
      */
     @Cacheable(value = "searchCompanyInterviews", key = "#companyName")
     public CompanySearchResult searchCompanyInterviews(String companyName) {
@@ -373,101 +306,47 @@ public class KnowledgeBaseService {
 
     /**
      * 搜索公司面试经验（结构化参数）。
-     * 先过滤公司相关的 KB，再合并检索，支持元数据过滤，
-     * 无结果时回退到 DB LIKE，最终 MCP 联网兜底。
+     * 多路并行召回：Milvus 向量检索（PUBLIC + 用户 PRIVATE KBs，优先匹配公司名称）+ MySQL LIKE → RRF 融合 → Rerank 精排。
      */
+    @Cacheable(value = "searchCompanyInterviews", key = "#req.company + '_' + #req.keywords + '_' + #req.category + '_' + #req.difficulty + '_' + #req.userId")
     public CompanySearchResult searchCompanyInterviews(SearchRequest req) {
         String companyName = req.getCompany() != null ? req.getCompany() : req.getKeywords();
+        String userId = req.getUserId();
         String filterExpr = req.buildFilterExpr();
-        int topK = Math.min(req.getTopK() != null ? req.getTopK() : 10, 50);
-        List<CompanySearchResult.CompanyItem> items = new ArrayList<>();
+        int recallTopK = 20;
+        int dbLimit = 10;
         long start = System.currentTimeMillis();
 
-        // 1. 收集与公司名称匹配的 PUBLIC 知识库 Collection
-        List<KbKnowledgeBase> kbs = kbRepo.findByVisibility("PUBLIC");
-        List<String> collections = new ArrayList<>();
-        for (KbKnowledgeBase kb : kbs) {
-            if (kb.getMilvusCollection() != null && !kb.getMilvusCollection().isBlank()) {
-                // 按知识库名称或描述匹配公司名
-                if (kb.getName() != null && kb.getName().toLowerCase().contains(companyName.toLowerCase())) {
-                    collections.add(kb.getMilvusCollection());
-                }
-            }
-        }
+        // Phase 1: 并行召回
+        CompletableFuture<List<SearchHit>> futureA = CompletableFuture.supplyAsync(
+                () -> milvusRecallCompany(companyName, recallTopK, filterExpr, userId), searchExecutor);
+        CompletableFuture<List<SearchHit>> futureB = CompletableFuture.supplyAsync(
+                () -> mysqlRecallByKeyword(companyName, dbLimit), searchExecutor);
 
-        // 2. 如果没有精确匹配公司名的 KB，则对所有 PUBLIC KB 检索
-        if (collections.isEmpty()) {
-            for (KbKnowledgeBase kb : kbs) {
-                if (kb.getMilvusCollection() != null && !kb.getMilvusCollection().isBlank()) {
-                    collections.add(kb.getMilvusCollection());
-                }
-            }
-        }
+        List<SearchHit> pathA = getQuietly(futureA, "Milvus");
+        List<SearchHit> pathB = getQuietly(futureB, "MySQL");
 
-        if (!collections.isEmpty()) {
-            try {
-                List<SearchTestResponse.SearchHit> hits = vectorSearchService.searchMultiCollection(
-                        collections, companyName + " 面试", topK, topK * 2, filterExpr);
-                for (SearchTestResponse.SearchHit hit : hits) {
-                    CompanySearchResult.CompanyItem item = new CompanySearchResult.CompanyItem();
-                    item.setCompanyName(companyName);
-                    item.setInterviewType(inferInterviewType(hit.getContent()));
-                    item.setSummary(truncate(hit.getContent(), 200));
-                    item.setDifficulty("中等");
-                    item.setRelevanceScore(1.0f / (1.0f + hit.getScore()));
-                    item.setSource("kb");
-                    items.add(item);
-                }
-            } catch (Exception e) {
-                log.warn("searchCompanyInterviews multi-collection failed: {}", e.getMessage());
-            }
-        }
+        // Phase 2: RRF 融合
+        List<SearchHit> fused = VectorSearchService.fuseWithRRF(List.of(pathA, pathB));
 
-        // 3. DB 回退
-        if (items.isEmpty()) {
-            List<InterviewQuestion> questions = questionRepo.findAll().stream()
-                    .filter(q -> q.getQuestionText() != null
-                            && q.getQuestionText().toLowerCase().contains(companyName.toLowerCase()))
-                    .limit(10)
-                    .toList();
-            for (InterviewQuestion q : questions) {
-                CompanySearchResult.CompanyItem item = new CompanySearchResult.CompanyItem();
-                item.setCompanyName(companyName);
-                item.setInterviewType(inferInterviewType(q.getQuestionText()));
-                item.setSummary(truncate(q.getQuestionText(), 200));
-                item.setDifficulty("中等");
-                item.setRelevanceScore(0.75f);
-                item.setSource("db");
-                items.add(item);
-            }
-        }
+        // Phase 3: Rerank 精排
+        List<CompanySearchResult.CompanyItem> items = rerankAndBuildCompanies(companyName, fused);
 
-        // 统计各来源命中数
         int milvusHits = (int) items.stream().filter(i -> "kb".equals(i.getSource())).count();
         int dbHits = (int) items.stream().filter(i -> "db".equals(i.getSource())).count();
-        int webHits = (int) items.stream().filter(i -> "web".equals(i.getSource())).count();
-
-        // 个性化加权排序
-        if (req.getUserId() != null && !req.getUserId().isBlank() && !items.isEmpty()) {
-            Set<String> weakPoints = personalizedRankService.getWeakPoints(req.getUserId());
-            for (CompanySearchResult.CompanyItem item : items) {
-                item.setRelevanceScore(personalizedRankService.boostScore(
-                        item.getSummary(), item.getRelevanceScore(), weakPoints));
-            }
-            items.sort((a, b) -> Float.compare(b.getRelevanceScore(), a.getRelevanceScore()));
-        }
+        int webHits = 0;
 
         long latencyMs = System.currentTimeMillis() - start;
-        // 异步记录搜索日志
-        searchAnalyticsService.logSearch(req.getUserId(), companyName, "searchCompanyInterviews",
+        searchAnalyticsService.logSearch(userId, companyName, "searchCompanyInterviews",
                 milvusHits, dbHits, webHits, latencyMs);
-        log.info("searchCompanyInterviews: company={}, results={}, source={}, latencyMs={}",
-                companyName, items.size(), items.isEmpty() ? "none" : items.get(0).getSource(), latencyMs);
+        log.info("searchCompanyInterviews: company={}, userId={}, milvusHits={}, dbHits={}, results={}, latencyMs={}",
+                companyName, userId, pathA.size(), pathB.size(), items.size(), latencyMs);
         return new CompanySearchResult(items.size(), items);
     }
 
     /**
      * 搜索学习资源（简化接口，向后兼容）。
+     * 仅搜索 PUBLIC KB，不包含用户私有 KB。
      */
     @Cacheable(value = "searchResources", key = "#topic")
     public ResourceListResult searchResources(String topic) {
@@ -479,65 +358,285 @@ public class KnowledgeBaseService {
 
     /**
      * 搜索学习资源（结构化参数）。
-     * 通过多 Collection 合并检索，支持元数据过滤，
-     * 无结果时 MCP 联网兜底。
+     * 资源类数据主要来自知识库文档，无 MySQL 路径，直接走 Rerank 精排。
+     * 搜索范围：PUBLIC + 用户 PRIVATE KBs。
      */
+    @Cacheable(value = "searchResources", key = "#req.keywords + '_' + #req.category + '_' + #req.difficulty + '_' + #req.userId")
     public ResourceListResult searchResources(SearchRequest req) {
         String topic = req.getKeywords();
+        String userId = req.getUserId();
         String filterExpr = req.buildFilterExpr();
-        int topK = Math.min(req.getTopK() != null ? req.getTopK() : 10, 50);
-        List<ResourceListResult.ResourceItem> items = new ArrayList<>();
+        int recallTopK = 20;
         long start = System.currentTimeMillis();
 
-        // 1. 收集 PUBLIC 知识库的 Collection，批量合并检索
-        List<KbKnowledgeBase> kbs = kbRepo.findByVisibility("PUBLIC");
+        // Path: Milvus 向量检索
+        List<SearchHit> hits = milvusRecall(topic, recallTopK, filterExpr, userId);
+
+        // Rerank 精排（单路召回跳过 RRF，直接 Rerank）
+        List<ResourceListResult.ResourceItem> items = rerankAndBuildResources(topic, hits);
+
+        int milvusHits = (int) items.stream().filter(i -> "kb".equals(i.getSource())).count();
+        int dbHits = 0;
+        int webHits = 0;
+
+        long latencyMs = System.currentTimeMillis() - start;
+        searchAnalyticsService.logSearch(userId, topic, "searchResources",
+                milvusHits, dbHits, webHits, latencyMs);
+        log.info("searchResources: topic={}, userId={}, milvusHits={}, results={}, latencyMs={}",
+                topic, userId, hits.size(), items.size(), latencyMs);
+        return new ResourceListResult(items.size(), items);
+    }
+
+    // ======================== 召回辅助方法 ========================
+
+    /**
+     * 获取 CompletableFuture 结果，异常/超时时取消另一路并返回空列表。
+     */
+    private List<SearchHit> getQuietly(CompletableFuture<List<SearchHit>> future, String pathName) {
+        try {
+            return future.get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("{} recall failed: {}", pathName, e.getMessage());
+            future.cancel(true);
+            return List.of();
+        }
+    }
+
+    /**
+     * Milvus 通用召回：收集 PUBLIC KB + 用户 PRIVATE KB 的 Collection，执行多 Collection 检索。
+     *
+     * @param userId 用户 ID，为 null 时仅搜索 PUBLIC KB
+     */
+    private List<SearchHit> milvusRecall(String query, int topK, String filterExpr, String userId) {
+        List<KbKnowledgeBase> kbs;
+        if (userId != null && !userId.isBlank()) {
+            kbs = kbRepo.findPublicOrOwnedBy(userId);
+        } else {
+            kbs = kbRepo.findByVisibility("PUBLIC");
+        }
         List<String> collections = new ArrayList<>();
         for (KbKnowledgeBase kb : kbs) {
             if (kb.getMilvusCollection() != null && !kb.getMilvusCollection().isBlank()) {
                 collections.add(kb.getMilvusCollection());
             }
         }
+        if (collections.isEmpty()) {
+            return List.of();
+        }
+        try {
+            List<SearchHit> hits = vectorSearchService.searchMultiCollection(collections, query, topK, topK * 2, filterExpr);
+            // 标记来源
+            for (SearchHit hit : hits) {
+                hit.setSource("kb");
+            }
+            return hits;
+        } catch (Exception e) {
+            log.warn("Milvus recall failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
 
-        if (!collections.isEmpty()) {
-            try {
-                List<SearchTestResponse.SearchHit> hits = vectorSearchService.searchMultiCollection(
-                        collections, topic, topK, topK * 2, filterExpr);
-                for (SearchTestResponse.SearchHit hit : hits) {
-                    ResourceListResult.ResourceItem item = new ResourceListResult.ResourceItem();
-                    item.setTitle(truncate(hit.getContent(), 80));
-                    item.setUrl("");
-                    item.setType("文档");
-                    item.setRelevanceScore(1.0f / (1.0f + hit.getScore()));
-                    item.setSource("kb");
-                    items.add(item);
+    /**
+     * Milvus 公司面试召回：优先匹配公司名称的 KB Collection（PUBLIC + 用户 PRIVATE），无匹配则全量检索。
+     *
+     * @param userId 用户 ID，为 null 时仅搜索 PUBLIC KB
+     */
+    private List<SearchHit> milvusRecallCompany(String companyName, int topK, String filterExpr, String userId) {
+        List<KbKnowledgeBase> kbs;
+        if (userId != null && !userId.isBlank()) {
+            kbs = kbRepo.findPublicOrOwnedBy(userId);
+        } else {
+            kbs = kbRepo.findByVisibility("PUBLIC");
+        }
+        List<String> collections = new ArrayList<>();
+        for (KbKnowledgeBase kb : kbs) {
+            if (kb.getMilvusCollection() != null && !kb.getMilvusCollection().isBlank()) {
+                if (kb.getName() != null && kb.getName().toLowerCase().contains(companyName.toLowerCase())) {
+                    collections.add(kb.getMilvusCollection());
                 }
-            } catch (Exception e) {
-                log.warn("searchResources multi-collection failed: {}", e.getMessage());
             }
         }
-
-        // 统计各来源命中数
-        int milvusHits = (int) items.stream().filter(i -> "kb".equals(i.getSource())).count();
-        int dbHits = (int) items.stream().filter(i -> "db".equals(i.getSource())).count();
-        int webHits = (int) items.stream().filter(i -> "web".equals(i.getSource())).count();
-
-        // 个性化加权排序
-        if (req.getUserId() != null && !req.getUserId().isBlank() && !items.isEmpty()) {
-            Set<String> weakPoints = personalizedRankService.getWeakPoints(req.getUserId());
-            for (ResourceListResult.ResourceItem item : items) {
-                item.setRelevanceScore(personalizedRankService.boostScore(
-                        item.getTitle(), item.getRelevanceScore(), weakPoints));
+        // 没有精确匹配则全量
+        if (collections.isEmpty()) {
+            for (KbKnowledgeBase kb : kbs) {
+                if (kb.getMilvusCollection() != null && !kb.getMilvusCollection().isBlank()) {
+                    collections.add(kb.getMilvusCollection());
+                }
             }
-            items.sort((a, b) -> Float.compare(b.getRelevanceScore(), a.getRelevanceScore()));
         }
+        if (collections.isEmpty()) {
+            return List.of();
+        }
+        try {
+            List<SearchHit> hits = vectorSearchService.searchMultiCollection(
+                    collections, companyName + " 面试", topK, topK * 2, filterExpr);
+            // 标记来源
+            for (SearchHit hit : hits) {
+                hit.setSource("kb");
+            }
+            return hits;
+        } catch (Exception e) {
+            log.warn("Milvus company recall failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
 
-        long latencyMs = System.currentTimeMillis() - start;
-        // 异步记录搜索日志
-        searchAnalyticsService.logSearch(req.getUserId(), topic, "searchResources",
-                milvusHits, dbHits, webHits, latencyMs);
-        log.info("searchResources: topic={}, results={}, source={}, latencyMs={}",
-                topic, items.size(), items.isEmpty() ? "none" : items.get(0).getSource(), latencyMs);
-        return new ResourceListResult(items.size(), items);
+    /**
+     * MySQL LIKE 检索面试题，返回 SearchHit 列表。
+     */
+    private List<SearchHit> mysqlRecallQuestions(String keyword, int limit) {
+        try {
+            List<InterviewQuestion> questions = questionRepo.searchByKeyword(
+                    keyword, PageRequest.of(0, limit));
+            List<SearchHit> hits = new ArrayList<>();
+            for (int i = 0; i < questions.size(); i++) {
+                InterviewQuestion q = questions.get(i);
+                SearchHit hit = new SearchHit();
+                hit.setDocId(q.getQuestionId());
+                hit.setChunkIndex(0);
+                hit.setContent(q.getQuestionText());
+                hit.setScore(0.8f - i * 0.02f);
+                hit.setSource("db");
+                hits.add(hit);
+            }
+            return hits;
+        } catch (Exception e) {
+            log.warn("MySQL recall failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * MySQL LIKE 检索含答案的面试题。
+     */
+    private List<SearchHit> mysqlRecallAnswers(String keyword, int limit) {
+        try {
+            List<InterviewQuestion> questions = questionRepo.searchWithAnswerByKeyword(
+                    keyword, PageRequest.of(0, limit));
+            List<SearchHit> hits = new ArrayList<>();
+            for (int i = 0; i < questions.size(); i++) {
+                InterviewQuestion q = questions.get(i);
+                SearchHit hit = new SearchHit();
+                hit.setDocId(q.getQuestionId());
+                hit.setChunkIndex(0);
+                hit.setContent(q.getQuestionText());
+                hit.setScore(0.8f - i * 0.02f);
+                hit.setSource("db");
+                hits.add(hit);
+            }
+            return hits;
+        } catch (Exception e) {
+            log.warn("MySQL answer recall failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * MySQL LIKE 通用关键词检索。
+     */
+    private List<SearchHit> mysqlRecallByKeyword(String keyword, int limit) {
+        return mysqlRecallQuestions(keyword, limit);
+    }
+
+    // ======================== Rerank + 构建输出 ========================
+
+    /**
+     * Rerank 上下文：包含原始候选列表和精排结果，用于映射回原始 SearchHit 元数据。
+     */
+    private record RerankContext(List<SearchHit> candidates, List<RerankerService.RerankResult> results) {}
+
+    /**
+     * 通用 Rerank 辅助：从 fused 结果中提取文档内容，调用 Reranker 精排。
+     * 返回 RerankContext 以保留原始 SearchHit 元数据（docId、source 等）。
+     */
+    private RerankContext doRerank(String query, List<SearchHit> fused) {
+        if (fused.isEmpty()) {
+            return new RerankContext(List.of(), List.of());
+        }
+        List<SearchHit> top20 = fused.size() > 20 ? fused.subList(0, 20) : fused;
+        List<String> docs = top20.stream().map(SearchHit::getContent).toList();
+        int topN = agentScopeProperties.getRerank().getTopN();
+        List<RerankerService.RerankResult> rawResults = rerankerService.rerank(query, docs, topN);
+        // 过滤越界 index，防御 Rerank API 异常返回
+        List<RerankerService.RerankResult> safeResults = new ArrayList<>();
+        for (RerankerService.RerankResult rr : rawResults) {
+            if (rr.getIndex() >= 0 && rr.getIndex() < top20.size()) {
+                safeResults.add(rr);
+            } else {
+                log.warn("Rerank returned out-of-bounds index: {}, candidates size: {}", rr.getIndex(), top20.size());
+            }
+        }
+        return new RerankContext(top20, safeResults);
+    }
+
+    private List<QuestionSearchResult.QuestionItem> rerankAndBuildQuestions(
+            String keyword, List<SearchHit> fused) {
+        RerankContext ctx = doRerank(keyword, fused);
+        List<QuestionSearchResult.QuestionItem> items = new ArrayList<>();
+        for (RerankerService.RerankResult rr : ctx.results()) {
+            SearchHit hit = ctx.candidates().get(rr.getIndex());
+            QuestionSearchResult.QuestionItem item = new QuestionSearchResult.QuestionItem();
+            item.setQuestionId(hit.getDocId() != null ? hit.getDocId() : rr.getDocument());
+            item.setContent(truncate(hit.getContent(), 200));
+            item.setCategory("通用");
+            item.setRelevanceScore((float) rr.getRelevanceScore());
+            item.setSource(hit.getSource() != null ? hit.getSource() : "kb");
+            items.add(item);
+        }
+        return items;
+    }
+
+    private List<AnswerSearchResult.AnswerItem> rerankAndBuildAnswers(
+            String keyword, List<SearchHit> fused) {
+        RerankContext ctx = doRerank(keyword, fused);
+        List<AnswerSearchResult.AnswerItem> items = new ArrayList<>();
+        for (RerankerService.RerankResult rr : ctx.results()) {
+            SearchHit hit = ctx.candidates().get(rr.getIndex());
+            AnswerSearchResult.AnswerItem item = new AnswerSearchResult.AnswerItem();
+            item.setAnswerId(hit.getDocId() != null ? hit.getDocId() : rr.getDocument());
+            item.setQuestion(keyword);
+            item.setAnswer(truncate(hit.getContent(), 300));
+            item.setCategory("通用");
+            item.setRelevanceScore((float) rr.getRelevanceScore());
+            item.setSource(hit.getSource() != null ? hit.getSource() : "kb");
+            items.add(item);
+        }
+        return items;
+    }
+
+    private List<CompanySearchResult.CompanyItem> rerankAndBuildCompanies(
+            String companyName, List<SearchHit> fused) {
+        RerankContext ctx = doRerank(companyName, fused);
+        List<CompanySearchResult.CompanyItem> items = new ArrayList<>();
+        for (RerankerService.RerankResult rr : ctx.results()) {
+            SearchHit hit = ctx.candidates().get(rr.getIndex());
+            CompanySearchResult.CompanyItem item = new CompanySearchResult.CompanyItem();
+            item.setCompanyName(companyName);
+            item.setInterviewType(inferInterviewType(hit.getContent()));
+            item.setSummary(truncate(hit.getContent(), 200));
+            item.setDifficulty("中等");
+            item.setRelevanceScore((float) rr.getRelevanceScore());
+            item.setSource(hit.getSource() != null ? hit.getSource() : "kb");
+            items.add(item);
+        }
+        return items;
+    }
+
+    private List<ResourceListResult.ResourceItem> rerankAndBuildResources(
+            String topic, List<SearchHit> hits) {
+        RerankContext ctx = doRerank(topic, hits);
+        List<ResourceListResult.ResourceItem> items = new ArrayList<>();
+        for (RerankerService.RerankResult rr : ctx.results()) {
+            SearchHit hit = ctx.candidates().get(rr.getIndex());
+            ResourceListResult.ResourceItem item = new ResourceListResult.ResourceItem();
+            item.setTitle(truncate(hit.getContent(), 80));
+            item.setUrl("");
+            item.setType("文档");
+            item.setRelevanceScore((float) rr.getRelevanceScore());
+            item.setSource(hit.getSource() != null ? hit.getSource() : "kb");
+            items.add(item);
+        }
+        return items;
     }
 
     private String truncate(String text, int maxLen) {

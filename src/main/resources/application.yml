@@ -77,6 +77,20 @@ agentscope:
     url: http://localhost:8000
     project: OfferPilot
 
+  # Rerank 独立配置 — 与 LLM Model 解耦
+  # 用于检索后精排阶段，对多路召回结果进行语义相关性重排序。
+  # api-key 优先级: RERANK_API_KEY > DASHSCOPE_API_KEY > model.api-key（代码回退）
+  # enabled=false 时跳过精排，直接返回 RRF 融合结果
+  rerank:
+    enabled: true
+    api-key: ${RERANK_API_KEY:${DASHSCOPE_API_KEY:}}
+    model-name: qwen3-rerank
+    base-url: https://dashscope.aliyuncs.com/compatible-api/v1/reranks
+    top-n: 5
+    score-threshold: 0.0
+    connect-timeout: 10
+    read-timeout: 30
+
 # App config:
 app:
   jwt:

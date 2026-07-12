@@ -164,16 +164,17 @@ class EmbeddingServiceTest {
         }
 
         @Test
-        @DisplayName("多批次（>25 条）→ 自动分批，返回全部向量")
+        @DisplayName("多批次（30 条 → 3 批各 10）→ 自动分批，返回全部向量")
         void embedBatch_multiBatch_shouldSplitAndReturnAll() {
             int totalTexts = 30;
+            int batchSize = 10;
             float[] singleVec = {0.5f};
-            List<float[]> batch1Vecs = IntStream.range(0, 25).mapToObj(i -> singleVec).toList();
-            List<float[]> batch2Vecs = IntStream.range(0, 5).mapToObj(i -> singleVec).toList();
+            List<float[]> batchVecs = IntStream.range(0, batchSize).mapToObj(i -> singleVec).toList();
 
-            Call call1 = createSuccessCall(buildSuccessResponse(batch1Vecs));
-            Call call2 = createSuccessCall(buildSuccessResponse(batch2Vecs));
-            when(mockHttpClient.newCall(any(Request.class))).thenReturn(call1, call2);
+            Call call1 = createSuccessCall(buildSuccessResponse(batchVecs));
+            Call call2 = createSuccessCall(buildSuccessResponse(batchVecs));
+            Call call3 = createSuccessCall(buildSuccessResponse(batchVecs));
+            when(mockHttpClient.newCall(any(Request.class))).thenReturn(call1, call2, call3);
 
             List<String> texts = IntStream.range(0, totalTexts).mapToObj(i -> "text-" + i).toList();
             List<float[]> results = embeddingService.embedBatch(texts);

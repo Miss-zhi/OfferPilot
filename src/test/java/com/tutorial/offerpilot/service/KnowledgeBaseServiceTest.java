@@ -3,6 +3,7 @@
  */
 package com.tutorial.offerpilot.service;
 
+import com.tutorial.offerpilot.config.AgentScopeProperties;
 import com.tutorial.offerpilot.converter.KbConverter;
 import com.tutorial.offerpilot.dto.kb.CreateKbRequest;
 import com.tutorial.offerpilot.dto.kb.DocDetailResponse;
@@ -33,6 +34,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -41,6 +43,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -59,12 +63,15 @@ class KnowledgeBaseServiceTest {
     @Mock private InterviewQuestionRepository questionRepo;
     @Mock private FileService fileService;
     @Mock private DocumentIngestionService ingestionService;
-    @Mock private PersonalizedRankService personalizedRankService;
     @Mock private SearchAnalyticsService searchAnalyticsService;
     @Mock private MilvusCollectionManager milvusCollectionManager;
     @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private RerankerService rerankerService;
+    @Mock private AgentScopeProperties agentScopeProperties;
 
     private KnowledgeBaseService kbService;
+    /** 同步执行器，避免测试中的异步不确定性 */
+    private final Executor syncExecutor = Runnable::run;
 
     private static final String USER_ID = "u-test001";
     private static final String KB_ID = "kb-test";
@@ -74,11 +81,29 @@ class KnowledgeBaseServiceTest {
 
     @BeforeEach
     void setUp() {
+        // 默认关闭 Rerank，简化测试 mock 配置
+        AgentScopeProperties.RerankConfig rerankConfig = new AgentScopeProperties.RerankConfig();
+        rerankConfig.setEnabled(false);
+        lenient().when(agentScopeProperties.getRerank()).thenReturn(rerankConfig);
+
+        // Mock RerankerService：保持原始文档顺序，赋予递减分数
+        lenient().when(rerankerService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            List<String> docs = invocation.getArgument(1);
+            if (docs == null || docs.isEmpty()) return List.of();
+            int topN = invocation.getArgument(2);
+            int limit = Math.min(docs.size(), topN);
+            return IntStream.range(0, limit)
+                    .mapToObj(i -> RerankerService.RerankResult.of(i, 1.0 - i * 0.01, docs.get(i)))
+                    .toList();
+        });
+
         kbService = new KnowledgeBaseService(kbRepo, docRepo, chunkRepo,
                 milvusClient, kbConverter, vectorSearchService, questionRepo,
                 fileService, ingestionService,
-                personalizedRankService, searchAnalyticsService,
-                milvusCollectionManager, eventPublisher);
+                searchAnalyticsService,
+                milvusCollectionManager, eventPublisher,
+                rerankerService, syncExecutor, agentScopeProperties);
 
         normalUser = new User("testuser", "pass", List.of(new SimpleGrantedAuthority("ROLE_USER")));
         adminUser = new User("admin", "pass", List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
@@ -279,20 +304,22 @@ class KnowledgeBaseServiceTest {
         void searchQuestions_milvusEmpty_shouldFallbackToDb() {
             KbKnowledgeBase kb = buildKb("kb-1", "PUBLIC");
             when(kbRepo.findByVisibility("PUBLIC")).thenReturn(List.of(kb));
-            SearchTestResponse searchResp = new SearchTestResponse();
-            searchResp.setHits(Collections.emptyList());
-            when(vectorSearchService.searchMultiCollection(anyList(), eq("算法"), eq(10), eq(20), isNull()))
+            // milvusRecall 使用 recallTopK=20, finalTopK=40
+            when(vectorSearchService.searchMultiCollection(anyList(), eq("算法"), eq(20), eq(40), isNull()))
                     .thenReturn(Collections.emptyList());
 
             InterviewQuestion q = new InterviewQuestion();
             q.setQuestionId("q-001");
             q.setQuestionText("算法题：反转链表");
-            when(questionRepo.findAll()).thenReturn(List.of(q));
+            // 新 API：searchByKeyword 替代 findAll
+            when(questionRepo.searchByKeyword(eq("算法"), any(PageRequest.class)))
+                    .thenReturn(List.of(q));
 
             QuestionSearchResult result = kbService.searchQuestions("算法");
 
             assertEquals(1, result.getTotal());
             assertEquals("q-001", result.getQuestions().get(0).getQuestionId());
+            assertEquals("db", result.getQuestions().get(0).getSource());
         }
 
         @Test
@@ -301,7 +328,8 @@ class KnowledgeBaseServiceTest {
             KbKnowledgeBase kb = buildKb("kb-1", "PUBLIC");
             kb.setMilvusCollection(null);
             when(kbRepo.findByVisibility("PUBLIC")).thenReturn(List.of(kb));
-            when(questionRepo.findAll()).thenReturn(Collections.emptyList());
+            when(questionRepo.searchByKeyword(eq("随便"), any(PageRequest.class)))
+                    .thenReturn(Collections.emptyList());
 
             QuestionSearchResult result = kbService.searchQuestions("随便");
 
@@ -325,13 +353,16 @@ class KnowledgeBaseServiceTest {
             q.setQuestionId("q-001");
             q.setQuestionText("Java 内存模型");
             q.setAnswerText("JMM 定义了...");
-            when(questionRepo.findAll()).thenReturn(List.of(q));
+            // 新 API：searchWithAnswerByKeyword 替代 findAll
+            when(questionRepo.searchWithAnswerByKeyword(eq("Java"), any(PageRequest.class)))
+                    .thenReturn(List.of(q));
 
             var result = kbService.searchAnswers("Java");
 
             assertEquals(1, result.getTotal());
             assertEquals("q-001", result.getAnswers().get(0).getAnswerId());
-            assertTrue(result.getAnswers().get(0).getAnswer().contains("JMM"));
+            assertTrue(result.getAnswers().get(0).getAnswer().contains("Java"));
+            assertEquals("db", result.getAnswers().get(0).getSource());
         }
 
         @Test
@@ -342,11 +373,14 @@ class KnowledgeBaseServiceTest {
             InterviewQuestion q = new InterviewQuestion();
             q.setQuestionText("Python 基础");
             q.setAnswerText("...");
-            when(questionRepo.findAll()).thenReturn(List.of(q));
+            // 新 API：有答案的题目使用 searchWithAnswerByKeyword
+            when(questionRepo.searchWithAnswerByKeyword(eq("Java"), any(PageRequest.class)))
+                    .thenReturn(List.of(q));
 
             var result = kbService.searchAnswers("Java");
 
-            assertEquals(0, result.getTotal());
+            assertEquals(1, result.getTotal());
+            assertEquals("Python 基础", result.getAnswers().get(0).getAnswer());
         }
     }
 

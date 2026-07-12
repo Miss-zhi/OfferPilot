@@ -3,7 +3,6 @@
 <cite>
 **本文引用的文件**   
 - [AgentFactory.java](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java)
-- [WebSearchFallbackService.java](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java)
 - [tools.json](file://workspace/tools.json)
 - [ConfidenceTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java)
 - [KnowledgeGapTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java)
@@ -19,10 +18,10 @@
 
 ## 更新摘要
 **变更内容**   
-- **MCP工具注册机制重大升级**：新增registerMcpWebSearch()方法实现动态工具加载，替代传统的tools.json自动加载机制
-- **工具名称统一标准化**：MCP搜索工具从web_search统一改为search，提升命名一致性
-- **SSE流式传输支持**：新增对Server-Sent Events的完整支持，提供更高效的实时通信模式
-- **双协议兼容架构**：同时支持Streamable HTTP和SSE两种MCP传输协议，增强系统兼容性
+- **WebSearchFallbackService类完全删除**：移除了中间服务层，简化了架构设计
+- **MCP工具注册机制优化**：AgentFactory.registerMcpWebSearch()方法保留，但架构更加简洁
+- **直接MCP协议调用**：Agent层现在直接通过MCP协议调用网络搜索，不再依赖中间服务层
+- **SSE流式传输支持移除**：由于WebSearchFallbackService的删除，相关的SSE实现细节已移除
 
 ## 目录
 - ReActAgent 推理循环
@@ -86,12 +85,12 @@
   - check_star | STAR检查 | StarCheckResult | 正则表达式分段
   - check_resume_quality | 简历质量 | QualityCheckResult | 文本统计分析
   - analyze_time_allocation | 时间分配 | TimeAllocationResult | 时长估算
-  - search（MCP） | 联网搜索 | 搜索结果 | WebSearchFallbackService
+  - search（MCP） | 联网搜索 | 搜索结果 | MCP协议直接调用
 
 **章节来源**
-- [SalaryTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L31-L63)
-- [SalaryTool.java:69-99](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L69-L99)
-- [SmartSearchTool.java:39-157](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L39-L157)
+- [SalaryTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L31-63)
+- [SalaryTool.java:69-99](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L69-99)
+- [SmartSearchTool.java:39-157](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L39-157)
 
 ## 多 Agent 协作范式
 - 父子关系图（1主+7子）
@@ -132,7 +131,7 @@ participant F as "AgentFactory"
 participant A as "主Agent(调度中心)"
 participant SA as "子Agent(专业分工)"
 participant K as "KnowledgeBaseService"
-participant W as "WebSearchFallbackService"
+participant MCP as "MCP Server"
 participant DB as "MySQL/Milvus/Redis"
 U->>C : "POST /api/v1/offerpilot/chat (或 /chat/stream)"
 C->>F : "getOrCreateAgent(userId)"
@@ -145,9 +144,8 @@ K->>DB : "向量检索/标量过滤/合并排序"
 DB-->>K : "结果集"
 K-->>SA : "结构化DTO"
 SA-->>A : "子Agent处理结果"
-A->>W : "需要联网搜索时调用search"
-W->>W : "HTTP调用open-websearch MCP服务"
-W-->>A : "互联网搜索结果"
+A->>MCP : "需要联网搜索时直接调用MCP search工具"
+MCP-->>A : "互联网搜索结果"
 A-->>C : "Msg(文本/事件流)"
 C-->>U : "SSE事件或JSON响应"
 ```
@@ -155,11 +153,10 @@ C-->>U : "SSE事件或JSON响应"
   - ChatController负责鉴权、限流、SSE推送与同步阻塞等待agent.call().block()。
   - AgentFactory使用Caffeine有界缓存（最多500个Agent，30分钟未访问淘汰）避免OOM。
   - MemoryInjectMiddleware在每次推理前通过onSystemPrompt钩子加载用户长期记忆。
-  - 工具层通过KnowledgeBaseService统一封装多租户检索，并在必要时触发WebSearchFallbackService进行MCP联网搜索兜底。
+  - 工具层通过KnowledgeBaseService统一封装多租户检索，MCP联网搜索由Agent层直接调用。
 
 **章节来源**
 - [AgentFactory.java:125-180](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L125-L180)
-- [WebSearchFallbackService.java:52-99](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L52-L99)
 
 ## 智能模型解析与动态实例化
 
@@ -265,15 +262,15 @@ Output --> Registry["ModelRegistry 解析"]
 - 使用DashScope作为默认提供商，提供更好的稳定性和兼容性
 
 **章节来源**
-- [AgentFactory.java:535-540](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L535-L540)
-- [pom.xml:146-165](file://pom.xml#L146-L165)
-- [application.yml:36-39](file://src/main/resources/application.yml#L36-L39)
+- [AgentFactory.java:535-540](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L535-540)
+- [pom.xml:146-165](file://pom.xml#L146-165)
+- [application.yml:36-39](file://src/main/resources/application.yml#L36-39)
 
 ## MCP 联网搜索集成（重大更新）
 
-### 动态工具注册机制升级
+### 简化的动态工具注册机制
 
-**重大更新** 实现了全新的registerMcpWebSearch()方法，采用动态工具注册机制替代传统的tools.json自动加载方式，提供更灵活的工具管理能力。
+**重大更新** 移除了WebSearchFallbackService中间服务层，采用更简洁的Agent层直接MCP协议调用架构。
 
 #### 新架构设计
 ```mermaid
@@ -284,51 +281,39 @@ C --> D[streamableHttpTransport(mcpUrl)]
 D --> E[buildAsync().block()]
 E --> F[toolkit.registration().mcpClient(mcpClient).apply()]
 F --> G[动态注册search工具]
+G --> H[Agent层直接调用MCP协议]
 ```
 
 #### 核心实现特性
 - **显式注册**：通过registerMcpWebSearch()方法主动连接MCP服务器
-- **双协议支持**：同时支持Streamable HTTP和SSE两种传输协议
+- **Streamable HTTP协议**：使用标准的HTTP请求-响应模式
 - **超时控制**：配置60秒请求超时和30秒初始化超时
 - **错误处理**：完善的异常捕获和降级策略
 - **异步构建**：使用buildAsync()配合.block()实现异步客户端构建
 
 #### 工具名称标准化
-- **统一命名**：MCP搜索工具从`web_search`统一改为`search`
+- **统一命名**：MCP搜索工具使用`search`名称
 - **权限配置**：PermissionContextState中添加`addAllowRule("search", ...)`
-- **子Agent白名单**：所有需要联网搜索的子Agent都使用`search`而非`web_search`
+- **子Agent白名单**：所有需要联网搜索的子Agent都使用`search`工具
 
 **章节来源**
-- [AgentFactory.java:491-520](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L491-L520)
-- [AgentFactory.java:483-485](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L483-L485)
+- [AgentFactory.java:491-520](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L491-520)
+- [AgentFactory.java:483-485](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L483-485)
 
-### SSE流式传输协议支持
+### 架构简化说明
 
-**新增** 完整的Server-Sent Events (SSE) 流式传输支持，提供更高效的实时通信模式。
+**重要变更** WebSearchFallbackService类已被完全删除，系统架构得到显著简化。
 
-#### SSE协议实现
-```mermaid
-sequenceDiagram
-participant Client as "WebSearchFallbackService"
-participant Server as "MCP Server"
-Note over Client : 建立会话
-Client->>Server : POST /mcp (initialize)
-Server-->>Client : 200 OK + Mcp-Session-Id
-Note over Client : 发送搜索请求
-Client->>Server : POST /mcp (tools/call)
-Note over Server : SSE事件流
-Server-->>Client : event : message
-Server-->>Client : data : {json}
-Server-->>Client : event : message
-Server-->>Client : data : {json}
-Note over Client : 解析SSE数据
-```
+#### 删除的服务功能
+- ~~WebSearchFallbackService类~~：中间服务层已移除
+- ~~SSE流式传输实现~~：不再需要复杂的SSE解析逻辑
+- ~~双重协议支持~~：简化为单一的Streamable HTTP协议
+- ~~会话管理~~：MCP客户端由框架统一管理
 
-#### 核心功能特性
-- **会话管理**：自动维护Mcp-Session-Id，支持5分钟会话过期
-- **SSE解析**：智能解析`event: message\ndata: {...}`格式的响应
-- **双重兼容**：同时支持标准SSE格式和纯JSON响应
-- **错误恢复**：网络异常时的自动重试和降级处理
+#### 新的调用流程
+- **Agent层直接调用**：Agent通过注册的MCP工具直接调用网络搜索
+- **简化错误处理**：统一的异常处理机制
+- **降低耦合度**：减少了服务间的依赖关系
 
 #### 配置文件更新
 ```json
@@ -346,30 +331,7 @@ Note over Client : 解析SSE数据
 ```
 
 **章节来源**
-- [WebSearchFallbackService.java:186-246](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L186-246)
 - [tools.json:1-12](file://workspace/tools.json#L1-12)
-
-### 双协议兼容架构
-
-**新增** 系统现在同时支持两种MCP传输协议，提供更高的兼容性和可靠性。
-
-#### 协议对比表
-| 特性 | Streamable HTTP | SSE流式传输 |
-|------|----------------|-------------|
-| 传输方式 | 单次HTTP请求 | 持续事件流 |
-| 适用场景 | 简单工具调用 | 实时数据推送 |
-| 性能特点 | 低延迟，高吞吐 | 实时性，低开销 |
-| 错误处理 | 完整异常传播 | 部分错误容忍 |
-| 资源占用 | 连接复用 | 长连接管理 |
-
-#### 混合使用策略
-- **AgentFactory.registerMcpWebSearch()**：使用Streamable HTTP进行工具发现
-- **WebSearchFallbackService.search()**：使用SSE进行实际搜索请求
-- **自动选择**：根据服务端能力和网络状况自动选择最优协议
-
-**章节来源**
-- [AgentFactory.java:497-520](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L497-520)
-- [WebSearchFallbackService.java:95-117](file://src/main/java/com/tutorial/offerpilot/service/WebSearchFallbackService.java#L95-117)
 
 ## 权限控制与安全机制
 
@@ -407,7 +369,7 @@ CheckBehavior --> DENY["DENY → 拒绝"]
 - **动态调整**：支持运行时修改权限规则
 
 **章节来源**
-- [AgentFactory.java:446-484](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L446-L484)
+- [AgentFactory.java:446-484](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L446-484)
 
 ## 六维分析工具集详解
 
@@ -458,8 +420,8 @@ F --> L
 - 基于密度计算的评分算法，考虑样本长度因素
 
 **章节来源**
-- [ConfidenceTool.java:36-91](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java#L36-L91)
-- [ConfidenceResult.java:18-34](file://src/main/java/com/tutorial/offerpilot/dto/tool/ConfidenceResult.java#L18-L34)
+- [ConfidenceTool.java:36-91](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java#L36-91)
+- [ConfidenceResult.java:18-34](file://src/main/java/com/tutorial/offerpilot/dto/tool/ConfidenceResult.java#L18-34)
 
 ### 知识缺口检测工具（KnowledgeGapTool）
 
@@ -477,8 +439,8 @@ F --> L
 - 支持可配置的topK参数控制检索数量
 
 **章节来源**
-- [KnowledgeGapTool.java:40-88](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java#L40-L88)
-- [KnowledgeGapResult.java:18-31](file://src/main/java/com/tutorial/offerpilot/dto/tool/KnowledgeGapResult.java#L18-L31)
+- [KnowledgeGapTool.java:40-88](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java#L40-88)
+- [KnowledgeGapResult.java:18-31](file://src/main/java/com/tutorial/offerpilot/dto/tool/KnowledgeGapResult.java#L18-31)
 
 ### 优先级排序工具（PriorityRankTool）
 
@@ -574,4 +536,4 @@ F --> L
 - 支持在子Agent的工具白名单中灵活配置访问权限
 
 **章节来源**
-- [AgentFactory.java:192-277](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L192-L277)
+- [AgentFactory.java:192-277](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L192-277)

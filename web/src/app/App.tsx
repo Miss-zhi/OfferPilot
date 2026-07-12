@@ -13,8 +13,6 @@ import { ResumePage } from '@/ui/pages/resume/ResumePage';
 import { KnowledgeListPage } from '@/ui/pages/admin/knowledge/KnowledgeListPage';
 import { DocListPage } from '@/ui/pages/admin/documents/DocListPage';
 import { SearchTestPage } from '@/ui/pages/admin/search/SearchTestPage';
-import { ProgressPage } from '@/ui/pages/progress/ProgressPage';
-import { SalaryPage } from '@/ui/pages/salary/SalaryPage';
 import { ModelConfigPage } from '@/ui/pages/admin/models/ModelConfigPage';
 import { SettingsPage } from '@/ui/pages/settings/SettingsPage';
 
@@ -86,22 +84,6 @@ export function App() {
               element={
                 <AuthGuard>
                   <SearchTestPage />
-                </AuthGuard>
-              }
-            />
-            <Route
-              path="/progress"
-              element={
-                <AuthGuard>
-                  <ProgressPage />
-                </AuthGuard>
-              }
-            />
-            <Route
-              path="/salary"
-              element={
-                <AuthGuard>
-                  <SalaryPage />
                 </AuthGuard>
               }
             />

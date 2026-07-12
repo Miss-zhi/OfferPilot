@@ -28,7 +28,23 @@ public class VectorSearchService {
         this.embeddingService = embeddingService;
     }
 
-    private static final List<String> OUTPUT_FIELDS = List.of("doc_id", "chunk_index", "content");
+    private static final List<String> OUTPUT_FIELDS = List.of("doc_id", "chunk_index", "content", "category", "difficulty", "position");
+
+    /** RRF 融合常量，标准值 60 */
+    private static final int RRF_K = 60;
+
+    /**
+     * 将 Milvus COSINE 距离转换为归一化相关性分数。
+     *
+     * <p>COSINE 距离 d ∈ [0, 2]，映射到 [0, 1]，1=完全匹配。
+     * 公式: score = 1 - d/2，等价于 (1 + cosine_similarity) / 2。
+     *
+     * @param distance Milvus COSINE 距离
+     * @return 归一化相关性分数，范围 [0, 1]
+     */
+    public static float cosineDistanceToScore(float distance) {
+        return Math.max(0f, Math.min(1f, 1f - distance / 2f));
+    }
 
     /**
      * 在指定 Collection 中执行向量检索。
@@ -99,10 +115,73 @@ public class VectorSearchService {
             }
         }
 
-        // 按距离升序排列（Milvus 距离越小越相似），取最终 Top-K
-        allHits.sort((a, b) -> Float.compare(a.getScore(), b.getScore()));
+        // 按归一化分数降序排列（1=最相似），取最终 Top-K
+        allHits.sort((a, b) -> Float.compare(b.getScore(), a.getScore()));
         int limit = Math.min(finalTopK, allHits.size());
         return allHits.subList(0, limit);
+    }
+
+    /**
+     * Reciprocal Rank Fusion (RRF) 多路召回融合。
+     * 使用排名位置而非原始分数进行融合，不受各路 score 尺度差异影响。
+     *
+     * <p>RRF 公式: score(d) = Σ 1 / (k + rank_i(d))，其中 rank 从 1 开始。
+     *
+     * @param pathResults 多路召回结果列表，每路内部已按相关性排序（best first）
+     * @param k           RRF 常数，通常取 60
+     * @return 融合去重后的结果列表，按 RRF score 降序排列
+     */
+    public static List<SearchTestResponse.SearchHit> fuseWithRRF(
+            List<List<SearchTestResponse.SearchHit>> pathResults, int k) {
+        if (pathResults == null || pathResults.isEmpty()) {
+            return List.of();
+        }
+
+        // docId + chunkIndex 作为去重 key
+        Map<String, SearchTestResponse.SearchHit> bestHit = new LinkedHashMap<>();
+        Map<String, Double> rrfScores = new LinkedHashMap<>();
+
+        for (List<SearchTestResponse.SearchHit> path : pathResults) {
+            if (path == null || path.isEmpty()) {
+                continue;
+            }
+            for (int rank = 0; rank < path.size(); rank++) {
+                SearchTestResponse.SearchHit hit = path.get(rank);
+                String key = (hit.getDocId() != null ? hit.getDocId() : "") + "::" + hit.getChunkIndex();
+
+                double rrfScore = 1.0 / (k + rank + 1);
+                rrfScores.merge(key, rrfScore, Double::sum);
+
+                // 保留分数最高的那个 hit（通常来自第一路）
+                if (!bestHit.containsKey(key)) {
+                    bestHit.put(key, hit);
+                }
+            }
+        }
+
+        // 按 RRF score 降序排列
+        List<Map.Entry<String, Double>> sorted = new ArrayList<>(rrfScores.entrySet());
+        sorted.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+
+        List<SearchTestResponse.SearchHit> results = new ArrayList<>();
+        for (Map.Entry<String, Double> entry : sorted) {
+            SearchTestResponse.SearchHit hit = bestHit.get(entry.getKey());
+            if (hit != null) {
+                // 用 RRF score 替换原始 score 作为融合后的相关性分数
+                hit.setScore(entry.getValue().floatValue());
+                results.add(hit);
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * RRF 融合的便捷方法，使用默认 k=60。
+     */
+    public static List<SearchTestResponse.SearchHit> fuseWithRRF(
+            List<List<SearchTestResponse.SearchHit>> pathResults) {
+        return fuseWithRRF(pathResults, RRF_K);
     }
 
     /**
@@ -125,14 +204,33 @@ public class VectorSearchService {
                 .topK(topK)
                 .outputFields(OUTPUT_FIELDS);
 
-        if (filterExpr != null && !filterExpr.isBlank()) {
+        boolean hasFilter = filterExpr != null && !filterExpr.isBlank();
+        if (hasFilter) {
             builder.filter(filterExpr);
         }
 
         SearchReq searchReq = builder.build();
 
-        SearchResp searchResp = milvusClient.search(searchReq);
+        SearchResp searchResp;
+        try {
+            searchResp = milvusClient.search(searchReq);
+        } catch (Exception e) {
+            // 旧 Collection 缺少新标量字段（category/difficulty/position）时降级为无过滤检索
+            if (hasFilter) {
+                log.warn("Filtered search failed for collection {} (likely missing scalar fields), retrying without filter: {}",
+                        collectionName, e.getMessage());
+                return searchByVector(collectionName, vector, topK, null);
+            }
+            throw new RuntimeException("Vector search failed for collection " + collectionName, e);
+        }
 
+        return extractHits(searchResp, collectionName, topK);
+    }
+
+    /**
+     * 从 Milvus 搜索结果中提取 SearchHit 列表。
+     */
+    private List<SearchTestResponse.SearchHit> extractHits(SearchResp searchResp, String collectionName, int topK) {
         List<SearchTestResponse.SearchHit> hits = new ArrayList<>();
         if (searchResp.getSearchResults() == null) {
             return hits;
@@ -149,7 +247,7 @@ public class VectorSearchService {
                 hit.setDocId(toString(entity.get("doc_id")));
                 hit.setChunkIndex(toInt(entity.get("chunk_index")));
                 hit.setContent(toString(entity.get("content")));
-                hit.setScore(result.getDistance());
+                hit.setScore(cosineDistanceToScore(result.getDistance()));
                 hits.add(hit);
             }
         }

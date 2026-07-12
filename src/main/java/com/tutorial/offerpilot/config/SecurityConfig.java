@@ -46,22 +46,30 @@ public class SecurityConfig {
                                 log.debug("Response already committed, skipping auth error response");
                                 return;
                             }
-                            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                            response.setCharacterEncoding("UTF-8");
-                            new ObjectMapper().writeValue(response.getWriter(),
-                                    ApiResponse.error(401, "未认证，请先登录"));
+                            try {
+                                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                                response.setCharacterEncoding("UTF-8");
+                                new ObjectMapper().writeValue(response.getWriter(),
+                                        ApiResponse.error(401, "未认证，请先登录"));
+                            } catch (Exception e) {
+                                log.debug("Failed to write auth error (response committed): {}", e.getMessage());
+                            }
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
                             if (response.isCommitted()) {
                                 log.debug("Response already committed, skipping access denied response");
                                 return;
                             }
-                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-                            response.setCharacterEncoding("UTF-8");
-                            new ObjectMapper().writeValue(response.getWriter(),
-                                    ApiResponse.error(403, "权限不足"));
+                            try {
+                                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                                response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                                response.setCharacterEncoding("UTF-8");
+                                new ObjectMapper().writeValue(response.getWriter(),
+                                        ApiResponse.error(403, "权限不足"));
+                            } catch (Exception e) {
+                                log.debug("Failed to write access denied error (response committed): {}", e.getMessage());
+                            }
                         })
                 )
                 .authorizeHttpRequests(auth -> auth

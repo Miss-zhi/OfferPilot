@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-12T00:39:28Z"
+exported_at: "2026-07-12T00:53:01Z"
 modules:
     "":
-        dir_name: OfferPilot 面试辅导平台（Spring Boot + AgentScope v2）
-        title: OfferPilot 面试辅导平台（Spring Boot + AgentScope v2）
+        dir_name: OfferPilot 面试辅导平台（Spring Boot + AgentScope v2 全栈应用）
+        title: OfferPilot 面试辅导平台（Spring Boot + AgentScope v2 全栈应用）
         scope: []
         source_files: []
         children: []

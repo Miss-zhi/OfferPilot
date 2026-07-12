@@ -21,5 +21,7 @@ public class SearchTestResponse {
         private String content;
         private Float score;
         private String tags;
+        /** 召回来源：milvus / mysql，用于统计和输出映射 */
+        private String source;
     }
 }

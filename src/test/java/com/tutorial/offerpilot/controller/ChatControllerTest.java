@@ -13,6 +13,11 @@ import io.agentscope.core.event.AgentEndEvent;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentEventType;
 import io.agentscope.core.event.TextBlockDeltaEvent;
+import io.agentscope.core.event.ThinkingBlockDeltaEvent;
+import io.agentscope.core.event.ThinkingBlockStartEvent;
+import io.agentscope.core.event.ThinkingBlockEndEvent;
+import io.agentscope.core.event.ToolCallStartEvent;
+import io.agentscope.core.event.ToolCallEndEvent;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.harness.agent.HarnessAgent;
@@ -274,6 +279,56 @@ class ChatControllerTest {
                                     {"message": ""}"""))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value(400));
+        }
+
+        @Test
+        @DisplayName("流式包含 thinking + tool_call 事件 → 完整透传")
+        void chatStream_withThinkingAndToolCall_shouldForwardAllEvents() throws Exception {
+            when(rateLimitService.tryAcquireDialogue(USER_ID)).thenReturn(true);
+            when(agent.streamEvents(anyString(), nullable(RuntimeContext.class)))
+                    .thenReturn(Flux.just(
+                            new ThinkingBlockStartEvent("reply-1", "block-1"),
+                            new ThinkingBlockDeltaEvent("reply-1", "block-1", "意图识别：company"),
+                            new ToolCallStartEvent("reply-1", "tc-1", "smart_search"),
+                            new ToolCallEndEvent("reply-1", "tc-1", "smart_search"),
+                            new ThinkingBlockDeltaEvent("reply-1", "block-1", "知识库结果充足"),
+                            new ThinkingBlockEndEvent("reply-1", "block-1"),
+                            createDeltaEvent("根据知识库检索结果..."),
+                            createAgentEndEvent()));
+
+            MvcResult result = mockMvc.perform(post("/api/v1/offerpilot/chat/stream")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .accept(MediaType.TEXT_EVENT_STREAM_VALUE)
+                            .content("""
+                                    {"message": "字节跳动面试题"}""")
+                    )
+                    .andExpect(status().isOk())
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+
+            verify(agent).streamEvents(anyString(), nullable(RuntimeContext.class));
+        }
+
+        @Test
+        @DisplayName("无 THINKING_BLOCK 事件时 → 静默跳过，不影响正常流程")
+        void chatStream_withoutThinkingEvents_shouldWorkNormally() throws Exception {
+            when(rateLimitService.tryAcquireDialogue(USER_ID)).thenReturn(true);
+            when(agent.streamEvents(anyString(), nullable(RuntimeContext.class)))
+                    .thenReturn(Flux.just(
+                            createDeltaEvent("直接回复"),
+                            createAgentEndEvent()));
+
+            MvcResult result = mockMvc.perform(post("/api/v1/offerpilot/chat/stream")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .accept(MediaType.TEXT_EVENT_STREAM_VALUE)
+                            .content("""
+                                    {"message": "你好"}""")
+                    )
+                    .andExpect(status().isOk())
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+
+            verify(agent).streamEvents(anyString(), nullable(RuntimeContext.class));
         }
 
         @Test

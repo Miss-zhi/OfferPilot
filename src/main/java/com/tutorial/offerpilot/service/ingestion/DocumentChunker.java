@@ -22,14 +22,20 @@ public class DocumentChunker {
     @Value("${agentscope.knowledge.chunk-overlap:50}")
     private int defaultChunkOverlap;
 
+    /** DashScope text-embedding-v3 单条文本最大输入长度（Token 限制 8192，字符上限保守设为 6000） */
+    private static final int MAX_CHUNK_LENGTH = 6000;
+
     public List<String> chunk(String text, String strategy) {
-        return switch (strategy != null ? strategy : "AUTO") {
+        List<String> raw = switch (strategy != null ? strategy : "AUTO") {
             case "BY_QUESTION" -> chunkByQuestion(text);
             case "BY_HEADING" -> chunkByHeading(text);
             case "BY_SIZE" -> chunkBySize(text, defaultChunkSize, defaultChunkOverlap);
             case "AUTO" -> autoChunk(text);
             default -> chunkBySize(text, defaultChunkSize, defaultChunkOverlap);
         };
+
+        // 二次拆分：确保每个 chunk 不超过 Embedding API 的输入长度限制
+        return splitOversizedChunks(raw);
     }
 
     private List<String> autoChunk(String text) {
@@ -53,13 +59,17 @@ public class DocumentChunker {
         List<String> chunks = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         for (String line : text.split("\n")) {
-            if (line.matches("^#{1,3}\\s+.*") && current.length() > 100) {
-                chunks.add(current.toString().trim());
+            if (line.matches("^#{1,3}\\s+.*")) {
+                if (current.length() > 0) {
+                    chunks.add(current.toString().trim());
+                }
                 current = new StringBuilder();
             }
             current.append(line).append("\n");
         }
-        if (current.length() > 100) chunks.add(current.toString().trim());
+        if (current.length() > 0) {
+            chunks.add(current.toString().trim());
+        }
         return chunks;
     }
 
@@ -72,5 +82,23 @@ public class DocumentChunker {
             start += chunkSize - overlap;
         }
         return chunks;
+    }
+
+    /**
+     * 将超过 MAX_CHUNK_LENGTH 的分块二次拆分为更小的片段。
+     * 使用固定大小滑动窗口（与 chunkBySize 相同逻辑）。
+     */
+    private List<String> splitOversizedChunks(List<String> chunks) {
+        List<String> result = new ArrayList<>();
+        for (String chunk : chunks) {
+            if (chunk.length() > MAX_CHUNK_LENGTH) {
+                log.warn("Chunk length {} exceeds max {}, splitting into sub-chunks",
+                        chunk.length(), MAX_CHUNK_LENGTH);
+                result.addAll(chunkBySize(chunk, MAX_CHUNK_LENGTH, 0));
+            } else {
+                result.add(chunk);
+            }
+        }
+        return result;
     }
 }

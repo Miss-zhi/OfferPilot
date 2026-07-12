@@ -6,7 +6,6 @@ package com.tutorial.offerpilot.service;
 import com.tutorial.offerpilot.entity.AnalysisReport;
 import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.InterviewSession;
-import com.tutorial.offerpilot.entity.KnowledgeMastery;
 import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.repository.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +32,6 @@ import static org.mockito.Mockito.*;
 class InterviewAnalysisServiceTest {
 
     @Mock private AnalysisReportRepository reportRepo;
-    @Mock private KnowledgeMasteryRepository masteryRepo;
     @Mock private InterviewQuestionRepository questionRepo;
     @Mock private InterviewSessionRepository sessionRepo;
 
@@ -110,8 +108,6 @@ class InterviewAnalysisServiceTest {
             existing.setQuestionText("Java 多态");
             existing.setSortOrder(0);
             when(questionRepo.findBySessionIdOrderBySortOrder(SESSION_ID)).thenReturn(List.of(existing));
-            when(sessionRepo.findBySessionId(SESSION_ID))
-                    .thenReturn(Optional.of(mockSession()));
 
             analysisService.saveAnalysis(SESSION_ID, "Java 多态", "多态是...", 80, 75, 70, "亮点", "弱点");
 
@@ -126,7 +122,6 @@ class InterviewAnalysisServiceTest {
         @DisplayName("新 question → 创建新记录")
         void saveAnalysis_newQuestion_shouldCreate() {
             when(questionRepo.findBySessionIdOrderBySortOrder(SESSION_ID)).thenReturn(Collections.emptyList());
-            when(sessionRepo.findBySessionId(SESSION_ID)).thenReturn(Optional.of(mockSession()));
 
             analysisService.saveAnalysis(SESSION_ID, "新题目", "答案", 90, 85, 80, null, null);
 

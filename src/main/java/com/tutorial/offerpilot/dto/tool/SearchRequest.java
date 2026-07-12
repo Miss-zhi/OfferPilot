@@ -5,6 +5,9 @@ package com.tutorial.offerpilot.dto.tool;
 
 import lombok.Data;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * 结构化搜索请求参数。
  * 替代单 keyword 字符串，支持分类/难度/公司/岗位等多维度过滤和个性化搜索。
@@ -35,11 +38,33 @@ public class SearchRequest {
 
     /**
      * 根据结构化参数构建 Milvus filter 表达式。
-     * 当前 category/difficulty 字段尚未加入 Milvus Collection Schema，
-     * 暂时返回 null 禁用标量过滤，改为在应用层后过滤。
-     * TODO: 待 Schema 扩展后恢复过滤逻辑。
+     * 使用 Milvus 标量过滤语法，字符串值需转义双引号。
+     *
+     * @return Milvus filter 表达式，无条件时返回 null（不做过滤）
      */
     public String buildFilterExpr() {
-        return null;
+        List<String> conditions = new ArrayList<>();
+
+        if (category != null && !category.isBlank()) {
+            conditions.add("category == \"" + escapeMilvus(category) + "\"");
+        }
+        if (difficulty != null && !difficulty.isBlank()) {
+            conditions.add("difficulty == \"" + escapeMilvus(difficulty) + "\"");
+        }
+        if (position != null && !position.isBlank()) {
+            conditions.add("position == \"" + escapeMilvus(position) + "\"");
+        }
+
+        if (conditions.isEmpty()) {
+            return null;
+        }
+        return String.join(" && ", conditions);
+    }
+
+    /**
+     * 转义 Milvus 标量过滤表达式中的特殊字符（双引号、反斜杠）。
+     */
+    private static String escapeMilvus(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

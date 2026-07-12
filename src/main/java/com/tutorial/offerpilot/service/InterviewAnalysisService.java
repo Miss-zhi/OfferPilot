@@ -6,19 +6,16 @@ package com.tutorial.offerpilot.service;
 import com.tutorial.offerpilot.entity.AnalysisReport;
 import com.tutorial.offerpilot.entity.InterviewQuestion;
 import com.tutorial.offerpilot.entity.InterviewSession;
-import com.tutorial.offerpilot.entity.KnowledgeMastery;
 import com.tutorial.offerpilot.exception.BusinessException;
 import com.tutorial.offerpilot.repository.AnalysisReportRepository;
 import com.tutorial.offerpilot.repository.InterviewQuestionRepository;
 import com.tutorial.offerpilot.repository.InterviewSessionRepository;
-import com.tutorial.offerpilot.repository.KnowledgeMasteryRepository;
 import com.tutorial.offerpilot.util.JsonUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +27,6 @@ import java.util.UUID;
 public class InterviewAnalysisService {
 
     private final AnalysisReportRepository reportRepo;
-    private final KnowledgeMasteryRepository masteryRepo;
     private final InterviewQuestionRepository questionRepo;
     private final InterviewSessionRepository sessionRepo;
 
@@ -44,7 +40,7 @@ public class InterviewAnalysisService {
     }
 
     /**
-     * 保存面试回答分析结果到 InterviewQuestion 并更新 KnowledgeMastery。
+     * 保存面试回答分析结果到 InterviewQuestion。
      */
     @Transactional
     public void saveAnalysis(String sessionId, String questionText, String answerText,
@@ -69,9 +65,6 @@ public class InterviewAnalysisService {
         question.setHighlights(highlights);
         question.setWeaknesses(weaknesses);
         questionRepo.save(question);
-
-        String knowledgePoint = extractKnowledgePoint(questionText);
-        updateMastery(question.getSessionId(), knowledgePoint, techScore);
 
         log.info("Analysis saved: sessionId={}, question={}, techScore={}, exprScore={}, coverageScore={}",
                 sessionId, questionText, techScore, exprScore, coverageScore);
@@ -119,35 +112,6 @@ public class InterviewAnalysisService {
         log.info("Report generated: reportId={}, sessionId={}, overallScore={}, questions={}",
                 report.getReportId(), sessionId, overallScore, questions.size());
         return report;
-    }
-
-    private String extractKnowledgePoint(String questionText) {
-        if (questionText == null || questionText.length() < 3) {
-            return "通用面试";
-        }
-        return questionText.substring(0, Math.min(questionText.length(), 20));
-    }
-
-    private void updateMastery(String sessionId, String knowledgePoint, Integer score) {
-        InterviewSession session = sessionRepo.findBySessionId(sessionId).orElse(null);
-        if (session == null) {
-            return;
-        }
-        KnowledgeMastery mastery = masteryRepo
-                .findByUserIdAndKnowledgePoint(session.getUserId(), knowledgePoint)
-                .orElseGet(() -> {
-                    KnowledgeMastery m = new KnowledgeMastery();
-                    m.setUserId(session.getUserId());
-                    m.setKnowledgePoint(knowledgePoint);
-                    m.setAssessCount(0);
-                    return m;
-                });
-
-        mastery.setPreviousScore(mastery.getScore());
-        mastery.setScore(score);
-        mastery.setAssessCount(mastery.getAssessCount() + 1);
-        mastery.setLastAssessed(Instant.now());
-        masteryRepo.save(mastery);
     }
 
     private Map<String, Object> buildDimensions(List<InterviewQuestion> questions) {

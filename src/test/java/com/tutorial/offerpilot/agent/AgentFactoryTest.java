@@ -66,11 +66,7 @@ class AgentFactoryTest {
     @Mock
     private AudioTranscribeTool audioTranscribeTool;
     @Mock
-    private CompanySearchTool companySearchTool;
-    @Mock
     private MockInterviewTool mockInterviewTool;
-    @Mock
-    private ProgressTrackTool progressTrackTool;
     @Mock
     private QuestionSearchTool questionSearchTool;
     @Mock
@@ -80,11 +76,7 @@ class AgentFactoryTest {
     @Mock
     private ResumeParseTool resumeParseTool;
     @Mock
-    private SalaryTool salaryTool;
-    @Mock
     private SmartSearchTool smartSearchTool;
-    @Mock
-    private PriorityRankTool priorityRankTool;
 
     @InjectMocks
     private AgentFactory agentFactory;
@@ -260,8 +252,8 @@ class AgentFactoryTest {
                 assertNotNull(prompt);
                 assertFalse(prompt.isBlank());
                 assertTrue(prompt.contains("OfferPilot"), "提示词应包含 OfferPilot 角色名");
-                assertTrue(prompt.contains("调度中心"), "提示词应包含调度中心角色描述");
-                assertTrue(prompt.contains("子 Agent"), "提示词应包含子 Agent 分派指南");
+                assertTrue(prompt.contains("面试诊断助手"), "提示词应包含 面试诊断助手 角色描述");
+                assertTrue(prompt.contains("检索型查询"), "提示词应包含检索型查询执行流程");
             }
         }
 
@@ -341,7 +333,7 @@ class AgentFactoryTest {
     class ToolkitBuildingTests {
 
         @Test
-        @DisplayName("Toolkit 包含 4 个分组 + 至少 13 个工具（12 业务 + meta）")
+        @DisplayName("Toolkit 包含 3 个分组 + 至少 10 个工具（9 业务 + meta）")
         void toolkit_shouldHaveCorrectGroupsAndTools() {
             try (TestMocks mocks = setupTestMocks()) {
 
@@ -353,15 +345,15 @@ class AgentFactoryTest {
                 Toolkit toolkit = toolkitCaptor.getValue();
 
                 assertNotNull(toolkit);
-                // 4 groups: knowledge_retrieval, resume_analysis, interview, utility
+                // 3 groups: knowledge_retrieval, resume_analysis, interview (EXTERNAL scope)
                 assertNotNull(toolkit.getActiveGroups());
-                assertEquals(4, toolkit.getActiveGroups().size(),
-                        "应有 4 个工具分组");
+                assertEquals(3, toolkit.getActiveGroups().size(),
+                        "应有 3 个工具分组");
 
-                // 12 tools: 11 business + meta
+                // 10 tools: 9 business + meta
                 assertNotNull(toolkit.getToolNames());
-                assertTrue(toolkit.getToolNames().size() >= 13,
-                        "应有至少 13 个工具，实际: " + toolkit.getToolNames().size());
+                assertTrue(toolkit.getToolNames().size() >= 10,
+                        "应有至少 10 个工具，实际: " + toolkit.getToolNames().size());
             }
         }
 
@@ -381,10 +373,10 @@ class AgentFactoryTest {
                         "应包含 search_answers");
                 assertTrue(toolkit.getToolNames().contains("search_questions"),
                         "应包含 search_questions");
-                assertTrue(toolkit.getToolNames().contains("search_company_interviews"),
-                        "应包含 search_company_interviews");
                 assertTrue(toolkit.getToolNames().contains("search_resources"),
                         "应包含 search_resources");
+                assertTrue(toolkit.getToolNames().contains("smart_search"),
+                        "应包含 smart_search");
             }
         }
 
@@ -429,27 +421,6 @@ class AgentFactoryTest {
         }
 
         @Test
-        @DisplayName("utility 分组含 3 个通用工具")
-        void utilityGroup_hasCorrectTools() {
-            try (TestMocks mocks = setupTestMocks()) {
-
-                ArgumentCaptor<Toolkit> toolkitCaptor = ArgumentCaptor.forClass(Toolkit.class);
-
-                agentFactory.getOrCreateAgent("user1");
-
-                verify(mocks.builder()).toolkit(toolkitCaptor.capture());
-                Toolkit toolkit = toolkitCaptor.getValue();
-
-                assertTrue(toolkit.getToolNames().contains("track_progress"),
-                        "应包含 track_progress");
-                assertTrue(toolkit.getToolNames().contains("search_salary"),
-                        "应包含 search_salary");
-                assertTrue(toolkit.getToolNames().contains("prioritize_weaknesses"),
-                        "应包含 prioritize_weaknesses");
-            }
-        }
-
-        @Test
         @DisplayName("registerMetaTool → Meta 工具被注册")
         void metaTool_shouldBeRegistered() {
             try (TestMocks mocks = setupTestMocks()) {
@@ -461,9 +432,9 @@ class AgentFactoryTest {
                 verify(mocks.builder()).toolkit(toolkitCaptor.capture());
                 Toolkit toolkit = toolkitCaptor.getValue();
 
-                // Meta tool name varies by AgentScope version; verify size exceeds business count
-                assertTrue(toolkit.getToolNames().size() >= 13,
-                        "registerMetaTool 应注册 meta 工具使总数 >= 13");
+                // Meta tool 名称为 reset_equipped_tools（内置），加上 9 个业务工具
+                assertTrue(toolkit.getToolNames().size() >= 10,
+                        "registerMetaTool 应注册 meta 工具使总数 >= 10");
             }
         }
     }

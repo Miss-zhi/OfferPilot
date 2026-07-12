@@ -26,13 +26,11 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.mcp.McpClientBuilder;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.agentscope.harness.agent.HarnessAgent;
-import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -60,20 +58,17 @@ public class AgentFactory {
     private final ModelConfigService modelConfigService;
     private final ApiKeyEncryption apiKeyEncryption;
 
-    /** 工具实例 — 所有 11 个工具类 */
+    /** 工具实例 — 10 个本地工具类 + MCP web-search */
     private final AnswerAnalyzeTool answerAnalyzeTool;
     private final AnswerSearchTool answerSearchTool;
     private final AudioTranscribeTool audioTranscribeTool;
-    private final CompanySearchTool companySearchTool;
+    private final ListKnowledgeBasesTool listKnowledgeBasesTool;
     private final MockInterviewTool mockInterviewTool;
-    private final ProgressTrackTool progressTrackTool;
     private final QuestionSearchTool questionSearchTool;
     private final ResourceSearchTool resourceSearchTool;
     private final ResumeEvaluateTool resumeEvaluateTool;
     private final ResumeParseTool resumeParseTool;
-    private final SalaryTool salaryTool;
     private final SmartSearchTool smartSearchTool;
-    private final PriorityRankTool priorityRankTool;
 
     /** Caffeine 有界缓存：最多 MAX_AGENTS 个 HarnessAgent，EVICT_MINUTES 分钟未访问自动淘汰 */
     private final Cache<String, HarnessAgent> agentPool = Caffeine.newBuilder()
@@ -91,16 +86,13 @@ public class AgentFactory {
                         AnswerAnalyzeTool answerAnalyzeTool,
                         AnswerSearchTool answerSearchTool,
                         AudioTranscribeTool audioTranscribeTool,
-                        CompanySearchTool companySearchTool,
                         MockInterviewTool mockInterviewTool,
-                        ProgressTrackTool progressTrackTool,
                         QuestionSearchTool questionSearchTool,
                         ResourceSearchTool resourceSearchTool,
                         ResumeEvaluateTool resumeEvaluateTool,
                         ResumeParseTool resumeParseTool,
-                        SalaryTool salaryTool,
-                        SmartSearchTool smartSearchTool,
-                        PriorityRankTool priorityRankTool) {
+                        ListKnowledgeBasesTool listKnowledgeBasesTool,
+                        SmartSearchTool smartSearchTool) {
         this.properties = properties;
         this.userMemoryService = userMemoryService;
         this.userModelService = userModelService;
@@ -109,16 +101,13 @@ public class AgentFactory {
         this.answerAnalyzeTool = answerAnalyzeTool;
         this.answerSearchTool = answerSearchTool;
         this.audioTranscribeTool = audioTranscribeTool;
-        this.companySearchTool = companySearchTool;
+        this.listKnowledgeBasesTool = listKnowledgeBasesTool;
         this.mockInterviewTool = mockInterviewTool;
-        this.progressTrackTool = progressTrackTool;
         this.questionSearchTool = questionSearchTool;
         this.resourceSearchTool = resourceSearchTool;
         this.resumeEvaluateTool = resumeEvaluateTool;
         this.resumeParseTool = resumeParseTool;
-        this.salaryTool = salaryTool;
         this.smartSearchTool = smartSearchTool;
-        this.priorityRankTool = priorityRankTool;
     }
 
     /**
@@ -131,13 +120,13 @@ public class AgentFactory {
     private HarnessAgent buildAgent(String userId) {
         log.info("Building HarnessAgent for userId={}", userId);
 
-        // 1. 构建 Toolkit — 4 个分组 + 注册所有工具
+        // 1. 构建 Toolkit — 3 个分组 + 注册所有工具
         Toolkit toolkit = buildToolkit();
 
         // 2. 按优先级选择模型: 用户私有 > 用户默认 > 全局默认 > application.yml 兜底
         Model model = resolveModel(userId);
 
-        // 3. 系统提示词（调度中心）
+        // 3. 系统提示词（全能助手）
         String sysPrompt = buildSystemPrompt();
 
         // 4. 中间件（每次构建新实例以确保线程安全统计）
@@ -147,29 +136,13 @@ public class AgentFactory {
         // 5. Permission
         PermissionContextState perms = buildPermissions();
 
-        // 6. 定义 7 个子 Agent
-        SubagentDeclaration resumeAgent = buildResumeAgent();
-        SubagentDeclaration techEvalAgent = buildTechEvalAgent();
-        SubagentDeclaration exprEvalAgent = buildExprEvalAgent();
-        SubagentDeclaration mockAgent = buildMockAgent();
-        SubagentDeclaration companyAgent = buildCompanyAgent();
-        SubagentDeclaration studyAgent = buildStudyAgent();
-        SubagentDeclaration salaryAgent = buildSalaryAgent();
-
-        // 7. 构建 HarnessAgent
+        // 6. 构建 HarnessAgent（单 Agent，不再派发子 Agent）
         HarnessAgent agent = HarnessAgent.builder()
                 .name("offerpilot_" + userId)
                 .sysPrompt(sysPrompt)
                 .model(model)
                 .toolkit(toolkit)
                 .workspace(Path.of("./workspace"))
-                .subagent(resumeAgent)
-                .subagent(techEvalAgent)
-                .subagent(exprEvalAgent)
-                .subagent(mockAgent)
-                .subagent(companyAgent)
-                .subagent(studyAgent)
-                .subagent(salaryAgent)
                 .permissionContext(perms)
                 .middleware(tokenMonitor)
                 .middleware(costControl)
@@ -182,266 +155,157 @@ public class AgentFactory {
     }
 
     /**
-     * 构建 Toolkit，创建 4 个工具分组并注册所有 11 个工具 + registerMetaTool。
-     *
-     * <pre>
-     *     分组 1: knowledge_retrieval — 知识检索
-     *     分组 2: resume_analysis      — 简历分析
-     *     分组 3: interview            — 面试
-     *     分组 4: utility              — 通用工具
-     * </pre>
+     * 构建 Toolkit，注册 10 个本地工具 + MCP web-search（不分组，避免 AgentScope 分组激活问题）。
      */
     private Toolkit buildToolkit() {
         Toolkit toolkit = new Toolkit();
 
-        // ---- 创建 4 个工具分组 ----
-        toolkit.createToolGroup(
-                "knowledge_retrieval",
-                "知识检索工具组 — 搜索面试题库、优秀答案、公司面经、学习资源");
-        toolkit.createToolGroup(
-                "resume_analysis",
-                "简历分析工具组 — 简历解析和简历评估");
-        toolkit.createToolGroup(
-                "interview",
-                "面试工具组 — 模拟面试、回答分析、录音转写");
-        toolkit.createToolGroup(
-                "utility",
-                "通用工具组 — 进度追踪、薪资查询");
+        // ---- 注册知识库元信息工具（无分组） ----
+        toolkit.registration()
+                .tool(listKnowledgeBasesTool)
+                .apply();
 
-        // ---- 分组 1: knowledge_retrieval ----
+        // ---- 注册知识检索工具（无分组） ----
         toolkit.registration()
                 .tool(answerSearchTool)
-                .group("knowledge_retrieval")
                 .apply();
         toolkit.registration()
                 .tool(questionSearchTool)
-                .group("knowledge_retrieval")
-                .apply();
-        toolkit.registration()
-                .tool(companySearchTool)
-                .group("knowledge_retrieval")
                 .apply();
         toolkit.registration()
                 .tool(resourceSearchTool)
-                .group("knowledge_retrieval")
                 .apply();
         toolkit.registration()
                 .tool(smartSearchTool)
-                .group("knowledge_retrieval")
                 .apply();
 
-        // ---- 分组 2: resume_analysis ----
+        // ---- 注册简历分析工具（无分组） ----
         toolkit.registration()
                 .tool(resumeParseTool)
-                .group("resume_analysis")
                 .apply();
         toolkit.registration()
                 .tool(resumeEvaluateTool)
-                .group("resume_analysis")
                 .apply();
 
-        // ---- 分组 3: interview ----
+        // ---- 注册面试工具（无分组） ----
         toolkit.registration()
                 .tool(mockInterviewTool)
-                .group("interview")
                 .apply();
         toolkit.registration()
                 .tool(answerAnalyzeTool)
-                .group("interview")
                 .apply();
         toolkit.registration()
                 .tool(audioTranscribeTool)
-                .group("interview")
-                .apply();
-
-        // ---- 分组 4: utility ----
-        toolkit.registration()
-                .tool(progressTrackTool)
-                .group("utility")
-                .apply();
-        toolkit.registration()
-                .tool(salaryTool)
-                .group("utility")
-                .apply();
-        toolkit.registration()
-                .tool(priorityRankTool)
-                .group("utility")
                 .apply();
 
         // ---- 注册 MCP web-search 工具 ----
         registerMcpWebSearch(toolkit);
 
-        // ---- 注册元工具 ----
-        toolkit.registerMetaTool();
-
-        log.info("Toolkit built: groups={}, tools={}",
-                toolkit.getActiveGroups().size(),
-                toolkit.getToolNames().size());
+        log.info("Toolkit built: tools={}", toolkit.getToolNames().size());
 
         return toolkit;
     }
 
     /**
-     * 构建系统提示词，定义 OfferPilot 助手的角色和行为。
+     * 构建系统提示词，定义 OfferPilot 全能助手的角色和行为。
      */
     private String buildSystemPrompt() {
         return """
-                You are OfferPilot 面试诊断助手的调度中心。
-
-                【你的唯一职责】理解用户需求，分派任务给子 Agent，整合结果回复用户。
-                【严禁行为】你绝对不能直接调用任何业务工具（search_questions、analyze_answer、
-                           parse_resume 等）。你的工具箱中只有 spawn/resume_subagent 和
-                           search。所有业务操作必须通过子 Agent 完成。
-
-                子 Agent 分派指南：
-                - 简历分析/优化 → spawn resume_coach
-                - 面试回答分析/评分 → spawn tech_evaluator + expression_evaluator（并行）
-                - 模拟面试练习 → spawn mock_interviewer
-                - 公司面试情报 → spawn company_researcher
-                - 学习计划/进度 → spawn study_planner
-                - 薪资查询/offer对比/谈判策略 → spawn salary_advisor
-                - 通用知识问答（无匹配子Agent时） → 调用 search 从互联网获取信息
-
-                调度规则：
-                1. 你只能使用 spawn（创建子Agent任务）和 resume（恢复子Agent任务）。
-                2. 子 Agent 返回结果后，用自然语言整合回复用户，不暴露内部调度过程。
-                3. 如果用户意图跨越多个子Agent领域，按优先级依次 spawn。
-                4. 绝不绕过子Agent直接调用业务工具——即使你知道答案也要走子Agent流程。
-
-                IMPORTANT — Tool output interpretation:
-                - When you call `generate_next_question`, it returns guidance (not a ready question).
-                - When you call `analyze_answer`, it returns the raw Q&A plus evaluation guidance.
-                - When you call `evaluate_resume`, it returns the resume text plus evaluation guidance.
-                - For all guidance-based tools, never echo the raw guidance to the user.
+                You are OfferPilot 面试诊断助手。
+    
+                【你的能力】
+                1. 简历智能诊断 — 解析 PDF 简历，多维度评估，给出优化建议
+                2. AI 模拟面试 — 扮演面试官，支持 TECH_DEEP/BEHAVIOR/SYSTEM_DESIGN/PRESSURE 模式
+                3. 录音/文字分析 — 转写录音，六维深度分析面试表现
+                4. 知识检索与智能问答 — 检索面试题库、优秀答案、公司面经、学习资源，不足时联网兜底
+    
+                【可用工具及使用场景】
+                | 工具 | 使用场景 |
+                | parse_resume | 用户上传 PDF 简历时解析 |
+                | evaluate_resume | 简历解析后，评估质量并给出建议 |
+                | generate_next_question | 模拟面试中，获取出题指导 |
+                | analyze_answer | 用户回答后，分析回答质量；面试复盘逐题分析 |
+                | transcribe_audio | 用户上传录音文件时转写 |
+                | search_questions | 检索面试题库 |
+                | search_answers | 检索优秀答案对标 |
+                | smart_search | 通用知识库语义检索（自动识别意图并路由到对应子库） |
+                | search_resources | 检索学习资源和教程 |
+                | search | 知识库无结果时联网搜索兜底（MCP 联网搜索） |
+                | list_knowledge_bases | 列出当前可访问的知识库及文档统计（用户问'知识库有什么'时使用） |
+    
+                【面试模式说明】
+                - TECH_DEEP: 深挖简历技术栈，追问底层原理
+                - BEHAVIOR: 行为面试，STAR 法则评估软素质
+                - SYSTEM_DESIGN: 系统设计，考察架构能力
+                - PRESSURE: 压力面试，追问质疑，测试抗压能力
+    
+                【执行流程（必须严格遵守）】
+                对于用户的每个问题，你必须先判断查询类型，然后按对应流程执行：
+    
+                ▎查询类型判断
+                - 检索型：用户询问面试题、公司信息、薪资数据、学习资源、通用知识等需要外部数据的问题
+                - 交互型：模拟面试出题（generate_next_question）、回答分析（analyze_answer）、
+                  简历解析（parse_resume）、简历评估（evaluate_resume）、录音转写（transcribe_audio）
+                - 复盘型：面试结束后的整场复盘分析、面试诊断、表现总结
+    
+                ▎检索型查询流程（5 步）
+                步骤 1：意图识别
+                  - 分析用户问题，判断属于哪种类型：practice（刷题）/ learn（学习）/ company（公司情报）
+                    / salary（薪资）/ general（通用）
+                  - 在思考中输出意图分类结果
+    
+                步骤 2：知识库检索
+                  - 优先使用 smart_search 或对应的专项搜索工具（search_questions/search_answers/
+                    search_resources）检索本地知识库
+                  - 若检索到足够信息 → 跳至步骤 4
+    
+                步骤 3：联网搜索兜底
+                  - 若知识库无结果或结果不充分 → 必须使用 search 工具（MCP 联网搜索）获取最新信息
+                  - 禁止跳过此步骤：如果知识库不足，你必须联网搜索
+    
+                步骤 4：信息整合
+                  - 将检索结果整合为自然语言回复
+                  - 引用来源（标注来自知识库/联网搜索）
+                  - 如有必要，对信息进行甄别和筛选
+    
+                步骤 5：流式输出
+                  - 以清晰、结构化、易读的方式输出最终回复
+    
+                ▎交互型查询流程
+                - 直接执行对应工具（generate_next_question / analyze_answer / parse_resume 等）
+                - 基于工具返回的结构化数据生成自然语言回复
+                - 无需执行知识库检索和联网搜索
+    
+                ▎面试复盘流程（绝对强制，逐题不可跳过）
+                当用户请求面试复盘/诊断/分析时，你必须按以下步骤执行：
+    
+                步骤 1：梳理问题清单
+                  - 从对话历史中提取本场面试的所有问答对（question + answer）
+                  - 在思考中列出完整的问题清单，确认共有多少道题
+    
+                步骤 2：逐题调用 analyze_answer（核心步骤，不可跳过任何一题）
+                  - 对清单中的每一道题，逐一调用 analyze_answer(question, answer, mode)
+                  - 每道题都必须调用，禁止批量跳过或合并处理
+                  - 工具返回每道题的评估指导（含评分维度、亮点/不足/建议模板）
+                  - 禁止在未调用 analyze_answer 的情况下，凭记忆直接给某道题打分或写评语
+    
+                步骤 3：综合诊断（基于工具返回的结构化数据）
+                  - 汇总所有题目的 analyze_answer 结果
+                  - 提炼共性问题和系统性短板
+                  - 基于数据（非猜测）生成综合诊断报告
+    
+                步骤 4：输出报告
+                  - 按题目逐一展示分析结果（评分 + 评语 + 亮点 + 不足 + 改进建议）
+                  - 最后给出综合诊断：整体评分、薄弱领域、短期提升建议、长期学习路径
+    
+                【重要规则】
+                1. 工具是分析的权威来源：你只能基于工具返回的结构化数据生成评分、评语和改进建议
+                2. 禁止 LLM 越权：不得在未调用 analyze_answer 的情况下，凭自身知识给面试回答打分或诊断
+                3. 面试中每 3-4 题给简短反馈，结束时（5-8 题）输出总体评价
+                4. 分析结果要客观、具体、可操作
+                5. 检索型查询必须遵循"知识库优先 → 不足时联网兜底"的流程，禁止跳过检索直接回复
+                6. 绝不暴露内部工具名称和调用过程给用户
                 """.stripIndent();
-    }
-
-    // ================================================================
-    // 子 Agent 声明
-    // ================================================================
-
-    private SubagentDeclaration buildResumeAgent() {
-        return SubagentDeclaration.builder()
-                .name("resume_coach")
-                .description("简历诊断顾问。当用户上传简历、要求简历优化时调用。")
-                .inlineAgentsBody("""
-                        你是一个资深 HR 顾问，有 10 年简历筛选经验。
-                        你的职责：
-                        1. 调用 parse_resume 解析简历
-                        2. 调用 evaluate_resume 评估质量
-                        3. 如果有目标 JD，检索该岗位高频考点，对比简历技能覆盖度
-                        4. 给出具体、可操作的优化建议
-                        语气专业但友善。""")
-                .tools(List.of("parse_resume", "evaluate_resume", "search_questions"))
-                .build();
-    }
-
-    private SubagentDeclaration buildTechEvalAgent() {
-        return SubagentDeclaration.builder()
-                .name("tech_evaluator")
-                .description("技术评估专家。当需要分析候选人的技术面试回答时调用。")
-                .inlineAgentsBody("""
-                        你是一个严格但公正的技术面试官，阿里 P7 级别。
-                        1. 调用 search_answers 检索优秀答案和评分标准
-                        2. 调用 analyze_answer 评估候选人的回答
-                        3. 逐条对比，指出覆盖了哪些得分点、遗漏了哪些
-                        评估要客观，好的地方说好，不好的地方说不好。""")
-                .tools(List.of("search_answers", "analyze_answer", "search_questions"))
-                .build();
-    }
-
-    private SubagentDeclaration buildExprEvalAgent() {
-        return SubagentDeclaration.builder()
-                .name("expression_evaluator")
-                .description("表达评估专家。当需要分析候选人的表达逻辑、沟通技巧时调用。")
-                .inlineAgentsBody("""
-                        你是一个沟通技巧教练。
-                        1. 分析回答的结构——是否有清晰的总分结构、是否用了 STAR 法则
-                        2. 检查口头禅和废话密度
-                        3. 评估时间分配——核心观点是否在前 30 秒内给出
-                        关注表达方式，不关注技术内容。""")
-                .tools(List.of("analyze_answer"))
-                .build();
-    }
-
-    private SubagentDeclaration buildMockAgent() {
-        return SubagentDeclaration.builder()
-                .name("mock_interviewer")
-                .description("模拟面试官。当用户想进行模拟面试练习时调用。")
-                .inlineAgentsBody("""
-                        你是面试官。面试开始前，请先确认面试模式：
-                        - 技术深挖 (TECH_DEEP)：适合技术岗，深挖项目经历和底层原理
-                        - 行为面试 (BEHAVIOR)：评估软素质和沟通能力
-                        - 系统设计 (SYSTEM_DESIGN)：考察架构设计能力
-                        - 压力面试 (PRESSURE)：测试抗压能力和临场反应
-
-                        如果没有明确指定，根据用户岗位默认选择：
-                        - 后端/算法/数据 → TECH_DEEP
-                        - 产品/运营 → BEHAVIOR
-                        - 架构师/高级开发 → SYSTEM_DESIGN
-
-                        每轮流程：
-                        1. 调用 generate_next_question(mode, context, resume_text) 获取出题指导
-                        2. 用自然语言提问
-                        3. 用户回答后调用 analyze_answer(question, answer, mode) 分析
-                        4. 压力模式下根据 followUpGuidance 追问
-                        5. 每 3-4 题给简短反馈
-                        6. 面试结束（5-8 题）输出总体评价""")
-                .tools(List.of("generate_next_question", "search_answers", "analyze_answer"))
-                .build();
-    }
-
-    private SubagentDeclaration buildCompanyAgent() {
-        return SubagentDeclaration.builder()
-                .name("company_researcher")
-                .description("公司面试情报调研员。当用户想了解目标公司的面试情况时调用。")
-                .inlineAgentsBody("""
-                        你是一个面试情报分析师。
-                        1. 调用 search_company_interviews 检索目标公司的面试情报
-                        2. 调用 search_questions 检索高频考点的具体题目
-                        3. 如果以上两个工具返回的结果不足或为空，
-                           调用 search 从互联网搜索最新的面试经验
-                        4. 整合成'面试情报卡'，标注数据来源（知识库/互联网）
-                        信息要准确，标注数据来源和时间。""")
-                .tools(List.of("search_company_interviews", "search_questions", "search"))
-                .build();
-    }
-
-    private SubagentDeclaration buildStudyAgent() {
-        return SubagentDeclaration.builder()
-                .name("study_planner")
-                .description("学习规划师。当用户想制定学习计划、查看学习进度时调用。")
-                .inlineAgentsBody("""
-                        你是一个学习计划规划师。
-                        1. 调用 track_progress 查看用户的学习数据
-                        2. 调用 prioritize_weaknesses 对薄弱知识点进行量化优先级排序
-                        3. 按优先级从高到低安排学习顺序
-                        4. 调用 search_resources 匹配学习资源
-                        5. 调用 search_questions 检索高频考题
-                        6. 如果知识库中学习资源不足，调用 search 从互联网搜索
-                           相关教程、文档和练习材料
-                        7. 生成周学习计划
-                        计划要实际可执行，每天 1-2 小时为宜。""")
-                .tools(List.of("track_progress", "prioritize_weaknesses", "search_resources", "search_questions", "search"))
-                .build();
-    }
-
-    private SubagentDeclaration buildSalaryAgent() {
-        return SubagentDeclaration.builder()
-                .name("salary_advisor")
-                .description("薪资谈判顾问。当用户拿到 offer、需要对比分析、薪资谈判策略时调用。")
-                .inlineAgentsBody("""
-                        你是一个资深 HR 和职业规划顾问，有 15 年招聘和薪资谈判经验。
-                        你的职责：
-                        1. 调用 search_salary 检索目标公司+岗位的薪资范围
-                        2. 如果本地薪资数据库无记录，调用 search 从互联网搜索
-                           该公司和岗位的最新薪资行情
-                        3. 调用 compare_offers 对比多个 offer 的综合待遇
-                        4. 调用 generate_negotiation_script 生成谈判话术
-                        5. 结合市场数据给出客观建议
-                        薪资信息敏感，回复要专业、客观、有数据支撑。""")
-                .tools(List.of("search_salary", "compare_offers", "generate_negotiation_script", "search"))
-                .build();
     }
 
     // ================================================================
@@ -459,8 +323,6 @@ public class AgentFactory {
                         new PermissionRule("search_questions", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("search_answers",
                         new PermissionRule("search_answers", null, PermissionBehavior.ALLOW, "userSettings"))
-                .addAllowRule("search_company_interviews",
-                        new PermissionRule("search_company_interviews", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("analyze_answer",
                         new PermissionRule("analyze_answer", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("transcribe_audio",
@@ -469,18 +331,10 @@ public class AgentFactory {
                         new PermissionRule("generate_next_question", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("search_resources",
                         new PermissionRule("search_resources", null, PermissionBehavior.ALLOW, "userSettings"))
-                .addAllowRule("track_progress",
-                        new PermissionRule("track_progress", null, PermissionBehavior.ALLOW, "userSettings"))
-                .addAllowRule("prioritize_weaknesses",
-                        new PermissionRule("prioritize_weaknesses", null, PermissionBehavior.ALLOW, "userSettings"))
-                .addAllowRule("search_salary",
-                        new PermissionRule("search_salary", null, PermissionBehavior.ALLOW, "userSettings"))
-                .addAllowRule("compare_offers",
-                        new PermissionRule("compare_offers", null, PermissionBehavior.ALLOW, "userSettings"))
-                .addAllowRule("generate_negotiation_script",
-                        new PermissionRule("generate_negotiation_script", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("smart_search",
                         new PermissionRule("smart_search", null, PermissionBehavior.ALLOW, "userSettings"))
+                .addAllowRule("list_knowledge_bases",
+                        new PermissionRule("list_knowledge_bases", null, PermissionBehavior.ALLOW, "userSettings"))
                 .addAllowRule("search",
                         new PermissionRule("search", null, PermissionBehavior.ALLOW, "联网搜索直接放行"))
                 .addDenyRule("delete_user_data",
@@ -495,11 +349,15 @@ public class AgentFactory {
      * 使用 Streamable HTTP 传输协议（与 open-websearch 服务端协议一致）。
      */
     private void registerMcpWebSearch(Toolkit toolkit) {
-        String mcpUrl = "http://localhost:3000/mcp";
+        String mcpUrl = "http://localhost:3003/mcp";
         try {
             log.info("Connecting to MCP web-search server at {}...", mcpUrl);
             McpClientWrapper mcpClient = McpClientBuilder.create("web-search")
                     .streamableHttpTransport(mcpUrl)
+                    .protocolVersions("2024-11-05", "2025-03-26")
+                    .httpRequestCustomizer((builder, method, uri, body, ctx) -> {
+                        builder.header("Accept", "application/json, text/event-stream");
+                    })
                     .timeout(Duration.ofSeconds(60))
                     .initializationTimeout(Duration.ofSeconds(30))
                     .buildAsync()

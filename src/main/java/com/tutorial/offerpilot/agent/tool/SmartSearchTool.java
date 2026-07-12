@@ -5,7 +5,6 @@ package com.tutorial.offerpilot.agent.tool;
 
 import com.tutorial.offerpilot.dto.tool.*;
 import com.tutorial.offerpilot.service.KnowledgeBaseService;
-import com.tutorial.offerpilot.service.PersonalizedRankService;
 import com.tutorial.offerpilot.service.QueryExpansionService;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
@@ -18,7 +17,7 @@ import java.util.*;
 
 /**
  * 统一智能搜索工具。
- * 提供单一 smart_search 入口，内部自动完成意图分类、Query 扩展、多路召回和个性化排序。
+ * 提供单一 smart_search 入口，内部自动完成意图分类、Query 扩展和多路召回。
  *
  * <p>替代场景：当 LLM 不确定该调用哪个具体的 search_* 工具时，可优先使用此工具，
  * 由后端根据 query 内容自动路由到最优搜索策略。
@@ -32,9 +31,6 @@ public class SmartSearchTool {
 
     @Autowired(required = false)
     private QueryExpansionService queryExpansionService;
-
-    @Autowired(required = false)
-    private PersonalizedRankService personalizedRankService;
 
     @Tool(name = "smart_search", description = "统一智能搜索：根据自然语言查询自动识别意图并检索面试题库、答案库、公司面经和学习资源")
     public SmartSearchResult smartSearch(

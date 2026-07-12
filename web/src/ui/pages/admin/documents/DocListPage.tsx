@@ -287,8 +287,9 @@ export function DocListPage() {
           style={{ width: 140 }}
           options={[
             { value: 'AUTO', label: '自动分块' },
-            { value: 'FIXED', label: '固定大小' },
-            { value: 'SEMANTIC', label: '语义分块' },
+            { value: 'BY_QUESTION', label: '按问题分块' },
+            { value: 'BY_HEADING', label: '按标题分块' },
+            { value: 'BY_SIZE', label: '固定大小分块' },
           ]}
         />
         <Button icon={<ReloadOutlined />} onClick={loadData}>刷新</Button>
@@ -330,8 +331,9 @@ export function DocListPage() {
               style={{ width: 140, marginLeft: 8 }}
               options={[
                 { value: 'AUTO', label: '自动分块' },
-                { value: 'FIXED', label: '固定大小' },
-                { value: 'SEMANTIC', label: '语义分块' },
+                { value: 'BY_QUESTION', label: '按问题分块' },
+                { value: 'BY_HEADING', label: '按标题分块' },
+                { value: 'BY_SIZE', label: '固定大小分块' },
               ]}
             />
           </div>

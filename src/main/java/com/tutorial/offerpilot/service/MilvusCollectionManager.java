@@ -63,6 +63,21 @@ public class MilvusCollectionManager {
                                 .maxLength(65535)
                                 .build(),
                         CreateCollectionReq.FieldSchema.builder()
+                                .name("category")
+                                .dataType(DataType.VarChar)
+                                .maxLength(64)
+                                .build(),
+                        CreateCollectionReq.FieldSchema.builder()
+                                .name("difficulty")
+                                .dataType(DataType.VarChar)
+                                .maxLength(16)
+                                .build(),
+                        CreateCollectionReq.FieldSchema.builder()
+                                .name("position")
+                                .dataType(DataType.VarChar)
+                                .maxLength(128)
+                                .build(),
+                        CreateCollectionReq.FieldSchema.builder()
                                 .name("vector")
                                 .dataType(DataType.FloatVector)
                                 .dimension(DEFAULT_VECTOR_DIM)
