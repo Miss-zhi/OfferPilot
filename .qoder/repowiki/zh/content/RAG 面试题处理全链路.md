@@ -12,13 +12,13 @@
 - [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java)
 - [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java)
 - [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java)
+- [src/main/java/com/tutorial/offerpilot/service/RerankerService.java](file://src/main/java/com/tutorial/offerpilot/service/RerankerService.java)
 - [src/main/java/com/tutorial/offerpilot/entity/KbChunk.java](file://src/main/java/com/tutorial/offerpilot/entity/KbChunk.java)
 - [src/main/java/com/tutorial/offerpilot/entity/KbDocument.java](file://src/main/java/com/tutorial/offerpilot/entity/KbDocument.java)
 - [src/main/java/com/tutorial/offerpilot/entity/KbKnowledgeBase.java](file://src/main/java/com/tutorial/offerpilot/entity/KbKnowledgeBase.java)
 - [src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java](file://src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java)
 - [src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java](file://src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java)
 - [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java)
-- [src/main/java/com/tutorial/offerpilot/service/PersonalizedRankService.java](file://src/main/java/com/tutorial/offerpilot/service/PersonalizedRankService.java)
 - [src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java](file://src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java)
 - [src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java](file://src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java)
 - [src/main/java/com/tutorial/offerpilot/service/SearchAnalyticsService.java](file://src/main/java/com/tutorial/offerpilot/service/SearchAnalyticsService.java)
@@ -32,16 +32,17 @@
 
 ## 更新摘要
 **变更内容**   
-- 移除了WebSearchFallbackService类及其相关网络搜索兜底逻辑（删除287行代码）
-- KnowledgeBaseService搜索方法简化为仅本地数据检索（Milvus + DB LIKE）
-- 网络搜索决策权完全回归到Agent/LLM层的SmartSearchTool和MCP协议
-- 更新了搜索流程图和相关章节，明确服务层职责边界
+- 移除了 PersonalizedRankService 类及其相关的个性化排序功能（删除个性化权重计算逻辑）
+- 新增 RerankerService 实现，支持基于 DashScope Rerank API 的语义重排序精排
+- 升级 VectorSearchService 的 RRF 融合算法和多路并行召回机制
+- KnowledgeBaseService 集成全新的两阶段多路召回 + RRF 融合 + Rerank 精排架构
+- 搜索流程从单路顺序模式升级为行业标准的双阶段并行召回架构
 
 ## 目录
 - RAG 全链路架构
 - 离线阶段：数据预处理与入库
 - 离线阶段：向量索引构建
-- 在线阶段：多路召回
+- 在线阶段：多路召回与精排
 - 搜索工具链增强架构
 - RAG核心Bug修复
 
@@ -61,9 +62,10 @@ C --> H["持久化分块<br/>KbChunk 表"]
 end
 subgraph "在线阶段"
 Q["用户提问"] --> I["多租户检索范围<br/>PUBLIC + PRIVATE 知识库"]
-I --> J["向量检索<br/>VectorSearchService.searchMultiCollection()"]
-J --> K["合并排序 Top-K"]
-K --> L["上下文增强 + 动态生成面试题"]
+I --> J["多路并行召回<br/>Milvus向量 + MySQL LIKE"]
+J --> K["RRF 融合去重<br/>Reciprocal Rank Fusion"]
+K --> L["Rerank 精排<br/>DashScope语义重排序"]
+L --> M["上下文增强 + 动态生成面试题"]
 end
 G -.->|集合名映射| I
 H -.->|doc_id/chunk_index 关联| K
@@ -72,23 +74,23 @@ H -.->|doc_id/chunk_index 关联| K
 图示来源
 - [src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java:1-49](file://src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java#L1-L49)
 - [src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java:1-168](file://src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java#L1-L168)
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:416-443](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L416-L443)
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:204-240](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L204-L240)
 - [src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentIngestionService.java:46-145](file://src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentIngestionService.java#L46-L145)
 - [src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentParser.java:29-37](file://src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentParser.java#L29-L37)
 - [src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentChunker.java:25-43](file://src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentChunker.java#L25-L43)
 - [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:62-74](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L62-L74)
-- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-L78)
+- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:85-122](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L85-L122)
 
 章节来源
 - [Documents/03-详细设计说明书.md:42-109](file://Documents/03-详细设计说明书.md#L42-L109)
 - [src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java:28-47](file://src/main/java/com/tutorial/offerpilot/controller/FileUploadController.java#L28-L47)
 - [src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java:90-109](file://src/main/java/com/tutorial/offerpilot/controller/KnowledgeBaseController.java#L90-L109)
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:416-443](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L416-L443)
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:204-240](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L204-L240)
 - [src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentIngestionService.java:46-145](file://src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentIngestionService.java#L46-L145)
 - [src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentParser.java:29-37](file://src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentParser.java#L29-L37)
 - [src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentChunker.java:25-43](file://src/main/java/com/tutorial/offerpilot/service/ingestion/DocumentChunker.java#L25-L43)
 - [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:62-74](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L62-L74)
-- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-L78)
+- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:85-122](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L85-L122)
 
 ## 离线阶段：数据预处理与入库
 > 展示 5 阶段异步入库管道的 Mermaid 状态图（UPLOADED→PARSING→CHUNKING→EMBEDDING→INDEXING→ACTIVE）
@@ -162,80 +164,97 @@ Ingest-->>Admin : 进度轮询返回 ACTIVE
 - [src/main/java/com/tutorial/offerpilot/entity/KbChunk.java:38-39](file://src/main/java/com/tutorial/offerpilot/entity/KbChunk.java#L38-39)
 - [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:509-558](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L509-558)
 
-## 在线阶段：多路召回
-> 绘制多路召回策略的 Mermaid 流程图（向量检索 + 标量过滤 + 关联检索 → 合并去重排序）
-> 说明 KnowledgeBase
+## 在线阶段：多路召回与精排
+> 绘制全新两阶段多路召回 + RRF 融合 + Rerank 精排的 Mermaid 流程图
 
 ```mermaid
 flowchart TD
-Start(["查询入口"]) --> Scope["确定检索范围<br/>PUBLIC 库 + 当前用户 PRIVATE 库"]
-Scope --> VQ["Query Embedding<br/>DashScope text-embedding-v3"]
-VQ --> Multi["多 Collection 向量检索<br/>VectorSearchService.searchMultiCollection()"]
-Multi --> Merge["合并候选集"]
-Merge --> Filter{"是否需要标量过滤<br/>tags/元数据"}
-Filter --> |是| Scalar["按 tags/metadata_json 过滤"]
-Filter --> |否| Skip["跳过"]
-Scalar --> Relate["可选：关联检索<br/>从面经提取关键词到题库检索"]
-Skip --> Relate
-Relate --> Rank["按相似度排序 + 去重"]
-Rank --> TopK["取 Top-K 结果"]
-TopK --> End(["返回给上层 Agent/工具层"])
+Start(["查询入口"]) --> Phase1["Phase 1: 多路并行召回"]
+Phase1 --> PathA["Path A: Milvus 向量检索<br/>PUBLIC + 用户 PRIVATE KBs"]
+Phase1 --> PathB["Path B: MySQL LIKE 关键词检索"]
+PathA --> Parallel["异步并行执行"]
+PathB --> Parallel
+Parallel --> Phase2["Phase 2: RRF 融合"]
+Phase2 --> RRF["Reciprocal Rank Fusion<br/>k=60 标准值"]
+RRF --> Merge["合并去重 + 排名融合"]
+Merge --> Phase3["Phase 3: Rerank 精排"]
+Phase3 --> Rerank["DashScope Rerank API<br/>qwen3-rerank 模型"]
+Rerank --> Filter{"分数阈值过滤<br/>scoreThreshold"}
+Filter --> |是| Threshold["过滤低分结果"]
+Filter --> |否| Skip["跳过过滤"]
+Threshold --> TopN["取 Top-N 结果"]
+Skip --> TopN
+TopN --> End(["返回给上层 Agent/工具层"])
 ```
 
-- **更新** 多租户检索范围：系统根据当前用户身份，聚合所有 PUBLIC 知识库与其 PRIVATE 知识库对应的 Milvus Collection 名称，形成待检索集合列表。
-- **更新** 向量检索：对每个 Collection 执行向量相似度检索，返回 doc_id、chunk_index、content 以及距离分数。**性能优化**：现在支持一次性多 Collection 合并检索，避免逐个遍历的性能损耗。
-- **更新** 标量过滤：可在检索参数中附加 tags 或 metadata_json 条件，进一步缩小结果集。**注意**：当前 category/difficulty 字段尚未加入 Milvus Collection Schema，暂时禁用标量过滤，改为在应用层后过滤。
-- 关联检索：从公司面经等文档中提取高频考点关键词，作为二次检索条件，命中题库集合的具体题目，提升相关性。
-- 合并排序：将所有 Collection 的结果合并，按相似度排序并去重，最终返回 Top-K。
+**更新** 系统已升级为行业标准的两阶段多路召回架构：
+
+### 第一阶段：多路并行召回
+- **Path A**: Milvus 向量检索，同时检索 PUBLIC 知识库和用户私有知识库，topK=20
+- **Path B**: MySQL InterviewQuestion LIKE 关键词检索，不再是回退路径而是并行路径，dbLimit=10
+- **异步执行**: 使用 CompletableFuture.supplyAsync 实现真正的并行召回，提升整体性能
+- **容错机制**: 任一路径异常不影响其他路径，getQuietly 方法确保单路失败返回空列表
+
+### 第二阶段：RRF 融合
+- **算法原理**: Reciprocal Rank Fusion (RRF)，公式 score(d) = Σ 1/(k + rank_i(d))，其中 k=60
+- **优势**: 使用排名位置而非原始分数进行融合，不受各路 score 尺度差异影响
+- **去重策略**: 基于 docId + chunkIndex 作为唯一标识进行去重
+- **分数替换**: 用 RRF score 替换原始相似度分数作为融合后的相关性分数
+
+### 第三阶段：Rerank 精排
+- **语义重排序**: 调用 DashScope qwen3-rerank 模型对 Top-20 候选进行语义相关性精排
+- **配置开关**: agentscope.rerank.enabled=false 时跳过精排，直接返回 RRF 融合结果
+- **降级策略**: API 调用失败时保持原始顺序，不阻断检索链路
+- **阈值过滤**: 可配置 scoreThreshold 过滤低相关性结果
 
 ```mermaid
 classDiagram
 class KnowledgeBaseService {
-+createKnowledgeBase(req, userId, currentUser)
-+listKnowledgeBases(userId, currentUser)
-+searchQuestions(keyword)
-+searchAnswers(keyword)
-+searchCompanyInterviews(companyName)
-+searchResources(topic)
-+createDoc(kbId, fileName, filePath, fileType, fileSize, chunkStrategy, userId, currentUser)
-+deleteDoc(kbId, docId, userId, currentUser)
-+reindexDoc(kbId, docId, userId, currentUser)
-+searchKb(kbId, query, filterExpr, topK, userId, currentUser)
++searchQuestions(SearchRequest req)
++searchAnswers(SearchRequest req)
++searchCompanyInterviews(SearchRequest req)
++searchResources(SearchRequest req)
+-milvusRecall(query, topK, filterExpr, userId)
+-mysqlRecallQuestions(keyword, limit)
+-doRerank(query, fusedCandidates)
 }
 class VectorSearchService {
-+search(collectionName, query, topK)
-+searchMultiCollection(collectionNames, query, topK, finalTopK)
++searchMultiCollection(collections, query, topK, finalTopK)
++fuseWithRRF(pathResults, k)
++cosineDistanceToScore(distance)
 }
-class EmbeddingService {
-+embed(text) float[]
-+embedBatch(texts) float[][]
+class RerankerService {
++rerank(query, documents, topN)
+-RerankResult[index, relevanceScore, document]
+-callRerankApi(query, documents)
+-fallbackOrder(documents)
 }
-class MilvusCollectionManager {
-+createCollection(collectionName) boolean
-+hasCollection(collectionName) boolean
-+dropCollection(collectionName) boolean
-+listCollections() ListCollectionsResp
+class AgentScopeProperties {
++RerankConfig enabled, apiKey, modelName
++baseUrl, topN, scoreThreshold
++connectTimeout, readTimeout
 }
-KnowledgeBaseService --> VectorSearchService : "调用多集合检索"
-VectorSearchService --> EmbeddingService : "生成 Query 向量"
-KnowledgeBaseService --> MilvusCollectionManager : "管理 Collection 生命周期"
+KnowledgeBaseService --> VectorSearchService : "多路召回 + RRF融合"
+KnowledgeBaseService --> RerankerService : "语义精排"
+KnowledgeBaseService --> AgentScopeProperties : "读取Rerank配置"
+VectorSearchService --> RerankerService : "间接依赖"
 ```
 
-图示来源
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:157-201](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L157-201)
-- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-78)
-- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:51-57](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L51-57)
-- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-78)
+**图示来源**
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:204-240](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L204-L240)
+- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:134-177](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L134-L177)
+- [src/main/java/com/tutorial/offerpilot/service/RerankerService.java:111-151](file://src/main/java/com/tutorial/offerpilot/service/RerankerService.java#L111-L151)
+- [src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java:113-131](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L113-L131)
 
-章节来源
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:157-201](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L157-201)
-- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:56-78](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L56-78)
-- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:51-57](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L51-57)
-- [src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java:34-78](file://src/main/java/com/tutorial/offerpilot/service/MilvusCollectionManager.java#L34-78)
+**章节来源**
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:204-240](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L204-L240)
+- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:134-177](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L134-L177)
+- [src/main/java/com/tutorial/offerpilot/service/RerankerService.java:111-151](file://src/main/java/com/tutorial/offerpilot/service/RerankerService.java#L111-L151)
+- [src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java:113-131](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L113-L131)
 
 ## 搜索工具链增强架构
 
-> 详细说明搜索工具链的架构设计，包括统一智能搜索入口、多维度过滤、智能查询扩展和个性化排序
+> 详细说明搜索工具链的架构设计，包括统一智能搜索入口、多维度过滤、智能查询扩展和语义重排序
 
 ### 统一智能搜索入口 - SmartSearchTool
 
@@ -263,7 +282,7 @@ Dedup --> Result["统一搜索结果"]
 - [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java:39-157](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L39-157)
 
 **章节来源**
-- [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java:1-209](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L1-L209)
+- [src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java:1-205](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L1-L205)
 
 ### 多维度过滤 - SearchRequest 对象
 
@@ -277,10 +296,10 @@ Dedup --> Result["统一搜索结果"]
 | company | String | 公司名称过滤 | "字节跳动/阿里巴巴" |
 | position | String | 岗位名称过滤 | "后端开发/算法工程师" |
 | topK | Integer | 返回数量，默认10，最大50 | 10 |
-| userId | String | 用户ID（用于个性化排序） | "user-123" |
+| userId | String | 用户ID（用于日志记录） | "user-123" |
 
 **章节来源**
-- [src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java:1-62](file://src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java#L1-L62)
+- [src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java:1-71](file://src/main/java/com/tutorial/offerpilot/dto/tool/SearchRequest.java#L1-L71)
 
 ### Query 扩展服务 - QueryExpansionService
 
@@ -293,16 +312,18 @@ Dedup --> Result["统一搜索结果"]
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java:1-214](file://src/main/java/com/tutorial/offerpilot/service/QueryExpansionService.java#L1-L214)
 
-### 个性化排序 - PersonalizedRankService
+### 语义重排序 - RerankerService
 
-**更新** PersonalizedRankService 服务，基于用户的知识掌握薄弱点对搜索结果进行加权排序，弱项相关的题目优先展示。
+**新增** RerankerService 服务，基于 DashScope Rerank API 对多路召回结果进行语义相关性重排序，显著提升最终结果的精准度。
 
-- **薄弱点识别**：从 KnowledgeMastery 表中筛选 score < 60 的知识点
-- **权重提升**：相关内容的原始分数 × 1.3 倍
-- **实时计算**：每次搜索时动态计算个性化权重
+- **模型支持**：默认使用 qwen3-rerank 模型，支持 OpenAI 兼容端点
+- **API Key 优先级**：rerank.api-key > model.api-key（回退兼容），无有效 Key 时自动禁用
+- **失败降级**：API 调用失败时保持原始顺序，不阻断检索链路
+- **配置开关**：agentscope.rerank.enabled=false 时跳过精排，直接返回 RRF 融合结果
+- **阈值过滤**：可配置 scoreThreshold 过滤低相关性结果
 
 **章节来源**
-- [src/main/java/com/tutorial/offerpilot/service/PersonalizedRankService.java:1-71](file://src/main/java/com/tutorial/offerpilot/service/PersonalizedRankService.java#L1-L71)
+- [src/main/java/com/tutorial/offerpilot/service/RerankerService.java:1-213](file://src/main/java/com/tutorial/offerpilot/service/RerankerService.java#L1-L213)
 
 ### 搜索分析与统计
 
@@ -330,31 +351,34 @@ Dedup --> Result["统一搜索结果"]
 
 ### 简化的搜索流程
 
-**更新** KnowledgeBaseService 中的搜索方法现已简化为仅本地数据检索，移除了自动网络搜索回退逻辑：
+**更新** KnowledgeBaseService 中的搜索方法现已升级为全新的两阶段多路召回架构，移除了个性化排序逻辑：
 
 ```mermaid
 sequenceDiagram
 participant User as "用户"
 participant KB as "KnowledgeBaseService"
 participant VS as "VectorSearchService"
-participant DB as "数据库"
+participant DB as "MySQL"
+participant RR as "RerankerService"
 User->>KB : searchQuestions(SearchRequest)
-KB->>VS : 多集合向量检索
-alt 有结果
+KB->>VS : 并行召回：Milvus向量检索
+KB->>DB : 并行召回：LIKE关键词检索
+alt 并行执行
 VS-->>KB : 向量匹配结果
-else 无结果
-KB->>DB : LIKE 模糊查询
 DB-->>KB : 数据库匹配结果
 end
-KB->>KB : 个性化排序 + 去重
+KB->>VS : RRF融合去重
+VS-->>KB : 融合结果
+KB->>RR : Rerank语义精排
+RR-->>KB : 精排结果
 KB-->>User : 最终搜索结果
 ```
 
 **图示来源**
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:182-249](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L182-L249)
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:204-240](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L204-L240)
 
 **章节来源**
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:50-249](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L50-L249)
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:204-240](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L204-L240)
 
 ## RAG核心Bug修复
 
@@ -396,7 +420,7 @@ KB-->>User : 最终搜索结果
 
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:196-221](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L196-L221)
-- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:84-106](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L84-L106)
+- [src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java:85-122](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L85-L122)
 
 ### Redis缓存机制增强
 
@@ -408,7 +432,7 @@ KB-->>User : 最终搜索结果
 
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/config/RedisConfig.java:29-48](file://src/main/java/com/tutorial/offerpilot/config/RedisConfig.java#L29-48)
-- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:176-182](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L176-L182)
+- [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:176-182](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L176-182)
 - [src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java:694-722](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L694-L722)
 
 ## 新增：Embedding 配置管理增强
@@ -425,9 +449,13 @@ subgraph "配置层次结构"
 A[AgentScopeProperties] --> B[ModelConfig - LLM模型配置]
 A --> C[EmbeddingConfig - 独立嵌入配置]
 A --> D[KnowledgeConfig - 知识库配置]
+A --> E[RerankConfig - 独立重排序配置]
 C --> C1[provider: dashscope]
 C --> C2[apiKey: 独立API密钥]
 C --> C3[baseUrl: 动态URL配置]
+E --> E1[enabled: true/false]
+E --> E2[modelName: qwen3-rerank]
+E --> E3[topN: 5]
 B --> B1[provider: deepseek]
 B --> B2[apiKey: LLM专用密钥]
 B --> B3[modelName: qwen-max]
@@ -442,11 +470,12 @@ end
 
 **图示来源**
 - [src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java:58-66](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L58-66)
-- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-58)
+- [src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java:113-131](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L113-L131)
+- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-L58)
 
 ### 智能 API Key 解析机制
 
-**更新** EmbeddingService 实现了智能的 API Key 解析逻辑，确保配置的灵活性和向后兼容性：
+**更新** EmbeddingService 和 RerankerService 都实现了智能的 API Key 解析逻辑，确保配置的灵活性和向后兼容性：
 
 1. **优先级规则**：`embedding.api-key` > `model.api-key`（回退兼容）
 2. **空值检查**：当 embedding.api-key 为空或空白时，自动回退到 model.api-key
@@ -455,7 +484,7 @@ end
 
 ### 配置示例
 
-**更新** 配置文件中的 Embedding 独立配置示例：
+**更新** 配置文件中的 Embedding 和 Rerank 独立配置示例：
 
 ```yaml
 agentscope:
@@ -471,6 +500,15 @@ agentscope:
     provider: dashscope
     base-url: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
   
+  # Rerank 独立配置（DashScope）
+  rerank:
+    enabled: true
+    api-key: ${RERANK_API_KEY:${DASHSCOPE_API_KEY:}}
+    model-name: qwen3-rerank
+    base-url: https://dashscope.aliyuncs.com/compatible-api/v1/reranks
+    top-n: 5
+    score-threshold: 0.0
+  
   # 知识库配置
   knowledge:
     embedding-model: text-embedding-v3
@@ -478,14 +516,18 @@ agentscope:
 
 ### 增强的日志记录
 
-**更新** EmbeddingService 现在提供更详细的初始化日志：
+**更新** EmbeddingService 和 RerankerService 现在提供更详细的初始化日志：
 
 - **Provider 信息**：记录使用的 Embedding Provider（默认 dashscope）
 - **Model 信息**：记录嵌入模型名称（text-embedding-v3）
 - **URL 信息**：记录 API Base URL 配置
 - **回退日志**：当使用 model.api-key 作为回退时，记录明确的提示信息
+- **Rerank 状态**：记录 Rerank 服务的启用状态、模型名称、超时配置等
 
 **章节来源**
 - [src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java:58-66](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L58-66)
-- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-58)
-- [src/main/resources/application.yml:57-63](file://src/main/resources/application.yml#L57-L63)
+- [src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java:113-131](file://src/main/java/com/tutorial/offerpilot/config/AgentScopeProperties.java#L113-L131)
+- [src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java:37-58](file://src/main/java/com/tutorial/offerpilot/service/EmbeddingService.java#L37-L58)
+- [src/main/java/com/tutorial/offerpilot/service/RerankerService.java:47-80](file://src/main/java/com/tutorial/offerpilot/service/RerankerService.java#L47-L80)
+- [src/main/resources/application.yml:57-63](file://src/main/resources/application.yml#L57-63)
+- [src/main/resources/application.yml:80-92](file://src/main/resources/application.yml#L80-92)

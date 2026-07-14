@@ -4,132 +4,85 @@
 **本文引用的文件**   
 - [AgentFactory.java](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java)
 - [tools.json](file://workspace/tools.json)
-- [ConfidenceTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java)
-- [KnowledgeGapTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java)
-- [PriorityRankTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/PriorityRankTool.java)
-- [ResumeQualityTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/ResumeQualityTool.java)
-- [StarCheckTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/StarCheckTool.java)
-- [TimeAllocationTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/TimeAllocationTool.java)
-- [SalaryTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java)
 - [SmartSearchTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java)
+- [AnswerAnalyzeTool.java](file://src/main/java/com/tutorial/offerpilot/agent/tool/AnswerAnalyzeTool.java)
+- [RerankerService.java](file://src/main/java/com/tutorial/offerpilot/service/RerankerService.java)
+- [VectorSearchService.java](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java)
+- [KnowledgeBaseService.java](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java)
 - [pom.xml](file://pom.xml)
 - [application.yml](file://src/main/resources/application.yml)
 </cite>
 
 ## 更新摘要
 **变更内容**   
-- **WebSearchFallbackService类完全删除**：移除了中间服务层，简化了架构设计
-- **MCP工具注册机制优化**：AgentFactory.registerMcpWebSearch()方法保留，但架构更加简洁
-- **直接MCP协议调用**：Agent层现在直接通过MCP协议调用网络搜索，不再依赖中间服务层
-- **SSE流式传输支持移除**：由于WebSearchFallbackService的删除，相关的SSE实现细节已移除
+- **架构简化**：从多Agent协作模式简化为单Agent直接调用工具模式，移除了8个子Agent和复杂的调度逻辑
+- **工具精简**：删除了6个六维分析工具（ConfidenceTool、KnowledgeGapTool、PriorityRankTool、ResumeQualityTool、StarCheckTool、TimeAllocationTool），保留9个核心工具
+- **MCP集成优化**：采用更简洁的Agent层直接MCP协议调用架构，移除了中间服务层
+- **RAG召回升级**：实现了两阶段多路并行召回+RRF融合+Rerank精排方案
 
 ## 目录
 - ReActAgent 推理循环
 - @Tool 工具定义与动态激活
-- 多 Agent 协作范式
 - Msg 消息流转路径
 - 智能模型解析与动态实例化
 - Provider 映射与依赖管理机制
 - MCP 联网搜索集成（重大更新）
 - 权限控制与安全机制
-- 六维分析工具集详解
+- RAG 召回策略升级
 
 ## ReActAgent 推理循环
-- 推理循环要点
-  - Reasoning：主Agent作为调度中心，基于系统提示词、记忆注入与计划模式进行思考，决定下一步动作（委派子Agent或调用search）。
-  - Action：通过spawn/resume_subagent将任务委派给专业子Agent；子Agent各自持有独立的过滤Toolkit（仅含其白名单工具）。
-  - Observation：工具返回结构化POJO（dto/tool/*），框架自动序列化为JSON供LLM消费；LLM据此生成自然语言输出或继续下一轮推理。
-- HarnessAgent.builder() 关键配置项
-  - sysPrompt：调度中心角色定义，明确"唯一职责是分发任务给子Agent，严禁直接调用业务工具"的行为约束。
-  - model：模型标识符（provider:modelName），从配置读取，支持动态解析。
-  - toolkit：注册所有本地@Tool与registerMetaTool；子Agent通过SubagentDeclaration.tools()白名单从主Toolkit获取过滤副本。
-  - subagent：声明7个子Agent（resume_coach、tech_evaluator、expression_evaluator、mock_interviewer、company_researcher、study_planner、salary_advisor）。
-  - permissionContext：启用细粒度权限控制，支持工具级ALLOW/DENY规则。
-  - workspace：配置MCP tools.json，启用search联网搜索能力。
-  - middleware：TokenMonitorMiddleware、CostControlMiddleware等监控中间件。
-  - enablePlanMode/enableTaskList：计划模式与todo_write元工具。
+- **单Agent推理循环要点**
+  - Reasoning：主Agent作为全能助手，基于系统提示词、记忆注入与计划模式进行思考，直接决定调用哪个工具或执行什么操作
+  - Action：通过统一的Toolkit直接调用工具方法，无需子Agent委派；工具返回结构化POJO供LLM消费
+  - Observation：所有工具结果统一序列化，LLM据此生成自然语言输出或继续下一轮推理
+- **HarnessAgent.builder() 关键配置项**
+  - sysPrompt：全能助手角色定义，明确"直接调用业务工具"的行为约束，列出所有可用工具及使用场景
+  - model：模型标识符（provider:modelName），从配置读取，支持动态解析
+  - toolkit：注册全部9个本地@Tool + MCP search，不再分组避免AgentScope分组激活问题
+  - permissionContext：启用细粒度权限控制，支持工具级ALLOW/DENY规则
+  - workspace：配置MCP tools.json，启用search联网搜索能力
+  - middleware：TokenMonitorMiddleware、CostControlMiddleware等监控中间件
+  - enablePlanMode/enableTaskList：计划模式与todo_write元工具
 
 **章节来源**
-- [AgentFactory.java:282-312](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L282-L312)
-- [AgentFactory.java:155-177](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L155-L177)
+- [AgentFactory.java:120-155](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L120-L155)
+- [AgentFactory.java:212-309](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L212-L309)
 
 ## @Tool 工具定义与动态激活
-- 以 SalaryTool 为例的结构
-  - 类级别：@Component（Spring管理）、显式构造器注入ObjectMapper。
-  - 方法级别：@Tool(name, description)，参数使用@ToolParam(name, description)。
-  - 返回值：结构化DTO（dto/tool/*），框架自动序列化。
-- 注册机制
-  - 主Agent的Toolkit集中注册全部本地@Tool，并调用registerMetaTool()启用元工具。
-  - 子Agent在spawn时从主Toolkit按tools()白名单筛选出独立副本，实现工具隔离。
-- 元工具
-  - registerMetaTool()提供能力：reset_equipped_tools（动态启禁工具组）、todo_write（任务清单）等。
-- 19个本地@Tool + MCP search全景表
+- **当前保留的9个核心工具结构**
+  - 类级别：@Component（Spring管理）、显式构造器注入依赖服务
+  - 方法级别：@Tool(name, description)，参数使用@ToolParam(name, description)
+  - 返回值：结构化DTO（dto/tool/*），框架自动序列化
+- **注册机制**
+  - 主Agent的Toolkit集中注册全部9个本地@Tool，不再分组注册
+  - 直接调用registerMcpWebSearch()启用MCP联网搜索能力
+- **9个本地@Tool全景表**
   - 名称 | 类别 | 返回类型 | 依赖注入
   - parse_resume | 简历分析 | ResumeParseResult | PDF/DOCX解析服务
   - evaluate_resume | 简历分析 | ResumeEvaluateResult | ResumeService
   - search_questions | 知识检索 | QuestionSearchResult | KnowledgeBaseService
   - search_answers | 知识检索 | AnswerSearchResult | KnowledgeBaseService
-  - search_company_interviews | 知识检索 | CompanySearchResult | KnowledgeBaseService
   - analyze_answer | 面试分析 | AnswerAnalysisResult | InterviewQuestionRepository
   - transcribe_audio | 面试分析 | TranscribeResult | ASR服务
   - generate_next_question | 面试分析 | NextQuestionResult | InterviewQuestionRepository / InterviewSessionRepository
-  - search_resources | 知识检索 | ResourceListResult | KnowledgeBaseService
-  - track_progress | 通用工具 | ProgressResult | ProgressService
-  - search_salary | 薪资谈判 | SalarySearchResult | SalaryService
-  - compare_offers | 薪资谈判 | OfferComparisonResult | SalaryService (JSON适配模式)
-  - generate_negotiation_script | 薪资谈判 | NegotiationScriptResult | SalaryService (简单委托模式)
   - smart_search | 统一搜索 | SmartSearchResult | KnowledgeBaseService + QueryExpansionService
-  - prioritize_weaknesses | 学习规划 | PriorityResult | KnowledgeMasteryRepository + SearchAnalyticsService
-  - analyze_confidence | 自信度分析 | ConfidenceResult | 文本特征分析
-  - detect_knowledge_gaps | 知识盲区 | KnowledgeGapResult | KnowledgeBaseService
-  - check_star | STAR检查 | StarCheckResult | 正则表达式分段
-  - check_resume_quality | 简历质量 | QualityCheckResult | 文本统计分析
-  - analyze_time_allocation | 时间分配 | TimeAllocationResult | 时长估算
+  - list_knowledge_bases | 知识库管理 | KbListResult | KnowledgeBaseRepository
   - search（MCP） | 联网搜索 | 搜索结果 | MCP协议直接调用
 
 **章节来源**
-- [SalaryTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L31-63)
-- [SalaryTool.java:69-99](file://src/main/java/com/tutorial/offerpilot/agent/tool/SalaryTool.java#L69-99)
-- [SmartSearchTool.java:39-157](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L39-157)
-
-## 多 Agent 协作范式
-- 父子关系图（1主+7子）
-```mermaid
-graph TB
-Main["主Agent<br/>offerpilot_main"] --> R["简历诊断<br/>resume_coach"]
-Main --> T["技术评估<br/>tech_evaluator"]
-Main --> E["表达评估<br/>expression_evaluator"]
-Main --> M["模拟面试官<br/>mock_interviewer"]
-Main --> C["公司调研<br/>company_researcher"]
-Main --> S["学习规划<br/>study_planner"]
-Main --> SA["薪资谈判<br/>salary_advisor"]
-```
-- spawn/resume 机制
-  - 主Agent仅使用spawn/resume_subagent将任务委派给子Agent；子Agent各自持有独立的过滤Toolkit（仅含其白名单工具）。
-  - 子Agent可并发执行（例如tech_evaluator与expression_evaluator并行评估同一回答）。
-- 工具白名单与过滤副本
-  - 主Toolkit作为"工具池"，子Agent通过SubagentDeclaration.tools()声明所需工具名列表；spawn时框架构建独立副本，确保工具隔离与最小权限。
-- 7个子Agent的SubagentDeclaration摘要
-  - resume_coach：parse_resume、evaluate_resume、search_questions
-  - tech_evaluator：search_answers、analyze_answer、search_questions
-  - expression_evaluator：analyze_answer
-  - mock_interviewer：generate_next_question、search_answers、analyze_answer
-  - company_researcher：search_company_interviews、search_questions、search
-  - study_planner：track_progress、prioritize_weaknesses、search_resources、search_questions、search
-  - salary_advisor：search_salary、compare_offers、generate_negotiation_script、search
-
-**章节来源**
-- [AgentFactory.java:318-440](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L318-L440)
+- [AgentFactory.java:160-207](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L160-L207)
+- [SmartSearchTool.java:35-153](file://src/main/java/com/tutorial/offerpilot/agent/tool/SmartSearchTool.java#L35-L153)
+- [AnswerAnalyzeTool.java:27-51](file://src/main/java/com/tutorial/offerpilot/agent/tool/AnswerAnalyzeTool.java#L27-L51)
 
 ## Msg 消息流转路径
-- 端到端时序（用户→Controller→AgentFactory.getOrCreate→Agent.call/streamEvents）
+- **端到端时序（用户→Controller→AgentFactory.getOrCreate→Agent.call/streamEvents）**
 ```mermaid
 sequenceDiagram
 participant U as "用户"
 participant C as "ChatController"
 participant F as "AgentFactory"
-participant A as "主Agent(调度中心)"
-participant SA as "子Agent(专业分工)"
+participant A as "单Agent(全能助手)"
+participant T as "工具层"
 participant K as "KnowledgeBaseService"
 participant MCP as "MCP Server"
 participant DB as "MySQL/Milvus/Redis"
@@ -138,25 +91,25 @@ C->>F : "getOrCreateAgent(userId)"
 F-->>C : "返回已缓存的HarnessAgent"
 C->>A : "call(message, ctx) 或 streamEvents(message, ctx)"
 A->>A : "Reasoning(系统提示词+记忆注入+计划模式)"
-A->>SA : "spawn/resume_subagent 委派专业任务"
-SA->>K : "调用工具(如 search_questions)"
+A->>T : "直接调用工具(如 smart_search)"
+T->>K : "调用服务(如 searchQuestions)"
 K->>DB : "向量检索/标量过滤/合并排序"
 DB-->>K : "结果集"
-K-->>SA : "结构化DTO"
-SA-->>A : "子Agent处理结果"
+K-->>T : "结构化DTO"
+T-->>A : "工具处理结果"
 A->>MCP : "需要联网搜索时直接调用MCP search工具"
 MCP-->>A : "互联网搜索结果"
 A-->>C : "Msg(文本/事件流)"
 C-->>U : "SSE事件或JSON响应"
 ```
-- 关键点
-  - ChatController负责鉴权、限流、SSE推送与同步阻塞等待agent.call().block()。
-  - AgentFactory使用Caffeine有界缓存（最多500个Agent，30分钟未访问淘汰）避免OOM。
-  - MemoryInjectMiddleware在每次推理前通过onSystemPrompt钩子加载用户长期记忆。
-  - 工具层通过KnowledgeBaseService统一封装多租户检索，MCP联网搜索由Agent层直接调用。
+- **关键点**
+  - ChatController负责鉴权、限流、SSE推送与同步阻塞等待agent.call().block()
+  - AgentFactory使用Caffeine有界缓存（最多500个Agent，30分钟未访问淘汰）避免OOM
+  - MemoryInjectMiddleware在每次推理前通过onSystemPrompt钩子加载用户长期记忆
+  - 工具层通过KnowledgeBaseService统一封装多租户检索，MCP联网搜索由Agent层直接调用
 
 **章节来源**
-- [AgentFactory.java:125-180](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L125-L180)
+- [AgentFactory.java:116-118](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L116-L118)
 
 ## 智能模型解析与动态实例化
 
@@ -204,7 +157,7 @@ FallbackResolve --> ReturnModel
 - **安全性**：API Key加密存储，防止敏感信息泄露
 
 **章节来源**
-- [AgentFactory.java:489-529](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L489-L529)
+- [AgentFactory.java:383-423](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L383-L423)
 
 ## Provider 映射与依赖管理机制
 
@@ -262,9 +215,9 @@ Output --> Registry["ModelRegistry 解析"]
 - 使用DashScope作为默认提供商，提供更好的稳定性和兼容性
 
 **章节来源**
-- [AgentFactory.java:535-540](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L535-540)
-- [pom.xml:146-165](file://pom.xml#L146-165)
-- [application.yml:36-39](file://src/main/resources/application.yml#L36-39)
+- [AgentFactory.java:429-434](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L429-L434)
+- [pom.xml:146-165](file://pom.xml#L146-L165)
+- [application.yml:36-39](file://src/main/resources/application.yml#L36-L39)
 
 ## MCP 联网搜索集成（重大更新）
 
@@ -294,11 +247,11 @@ G --> H[Agent层直接调用MCP协议]
 #### 工具名称标准化
 - **统一命名**：MCP搜索工具使用`search`名称
 - **权限配置**：PermissionContextState中添加`addAllowRule("search", ...)`
-- **子Agent白名单**：所有需要联网搜索的子Agent都使用`search`工具
+- **单Agent白名单**：主Agent直接获得search工具的访问权限
 
 **章节来源**
-- [AgentFactory.java:491-520](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L491-520)
-- [AgentFactory.java:483-485](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L483-485)
+- [AgentFactory.java:351-378](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L351-L378)
+- [AgentFactory.java:338-339](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L338-L339)
 
 ### 架构简化说明
 
@@ -320,8 +273,8 @@ G --> H[Agent层直接调用MCP协议]
 {
   "mcpServers": {
     "web-search": {
-      "transport": "sse",
-      "url": "http://localhost:3000/sse",
+      "transport": "streamable-http",
+      "url": "http://localhost:3002/mcp",
       "env": {
         "DEFAULT_SEARCH_ENGINE": "bing"
       }
@@ -331,7 +284,7 @@ G --> H[Agent层直接调用MCP协议]
 ```
 
 **章节来源**
-- [tools.json:1-12](file://workspace/tools.json#L1-12)
+- [tools.json:1-12](file://workspace/tools.json#L1-L12)
 
 ## 权限控制与安全机制
 
@@ -355,7 +308,7 @@ CheckBehavior --> DENY["DENY → 拒绝"]
 ```
 
 #### 权限规则配置
-- **工具白名单**：为每个子Agent配置允许访问的工具列表
+- **工具白名单**：为单Agent配置允许访问的所有工具列表
 - **行为策略**：
   - PermissionBehavior.ALLOW：直接允许执行
   - PermissionBehavior.DENY：明确拒绝执行
@@ -363,177 +316,67 @@ CheckBehavior --> DENY["DENY → 拒绝"]
 - **上下文感知**：支持基于用户设置、会话状态等的动态权限判断
 
 #### 安全最佳实践
-- **最小权限原则**：每个子Agent仅获得完成任务所需的最小工具集
+- **最小权限原则**：每个工具仅获得完成任务所需的最小权限
 - **显式授权**：所有工具调用都需要明确的权限规则
 - **审计追踪**：记录所有权限决策和执行结果
 - **动态调整**：支持运行时修改权限规则
 
 **章节来源**
-- [AgentFactory.java:446-484](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L446-484)
+- [AgentFactory.java:315-343](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L315-L343)
 
-## 六维分析工具集详解
+## RAG 召回策略升级
 
-### 新增六维分析工具架构
+### 两阶段多路并行召回+RRF融合+Rerank精排方案
 
-**新增** 为了提供更全面的面试评估能力，系统新增了六个专业化的分析工具，形成完整的六维分析体系。这些工具专注于不同的评估维度，每个工具都返回结构化的分析结果和LLM指导文本。
+**重大更新** 将现有的单路向量检索升级为行业标准的两阶段多路并行召回+RRF融合+Rerank精排方案。
 
-#### 六维分析工具概览
+#### 目标架构
 ```mermaid
-graph TB
-subgraph "六维分析工具集"
-A[置信度分析<br/>ConfidenceTool]
-B[知识缺口检测<br/>KnowledgeGapTool]
-C[优先级排序<br/>PriorityRankTool]
-D[简历质量评估<br/>ResumeQualityTool]
-E[STAR方法验证<br/>StarCheckTool]
-F[时间分配分析<br/>TimeAllocationTool]
-end
-subgraph "分析维度"
-G[表达自信度]
-H[知识点覆盖]
-I[学习优先级]
-J[简历质量]
-K[STAR完整性]
-L[时间合理性]
-end
-A --> G
-B --> H
-C --> I
-D --> J
-E --> K
-F --> L
+flowchart TD
+Query["用户查询"] --> PathA["Path A: Milvus向量检索<br/>topK=20"]
+Query --> PathB["Path B: MySQL LIKE关键词检索<br/>topK=10"]
+PathA --> RRF["RRF融合<br/>k=60"]
+PathB --> RRF
+RRF --> Top20["取Top-20"]
+Top20 --> Rerank["Rerank精排<br/>DashScope API"]
+Rerank --> TopN["返回Top-N<br/>可配置"]
 ```
 
-### 置信度分析工具（ConfidenceTool）
+#### 核心实现特性
 
-**新增** 专门用于分析面试回答中的表达自信度，通过文本特征分析评估候选人的自信心水平。
+**多路并行召回**
+- **Path A**：Milvus向量检索（PUBLIC + 用户PRIVATE KBs），topK=20
+- **Path B**：MySQL InterviewQuestion LIKE关键词检索，不再是回退而是并行路径
+- **并发执行**：使用CompletableFuture.supplyAsync实现并行召回
 
-#### 核心功能
-- **口头禅密度统计**：识别和分析填充词（嗯、呃、那个等）的使用频率
-- **自我修正模式检测**：识别不确定表达和自我修正的语言模式
-- **自信度评分计算**：基于文本特征计算0-100分的自信度评分
-- **结构化结果输出**：返回详细的统计数据和分析指导
+**RRF融合算法**
+- 使用Reciprocal Rank Fusion公式：score(d) = Σ 1 / (k + rank_i(d))
+- k值设为60，不受各路score尺度差异影响
+- 基于docId + chunkIndex去重，按RRF score降序排列
 
-#### 算法实现
-- 使用预定义的犹豫词集合进行匹配统计
-- 通过正则表达式识别自我修正模式
-- 基于密度计算的评分算法，考虑样本长度因素
+**Rerank精排**
+- 调用DashScope Rerank API（OpenAI兼容接口）
+- 对Top-20候选进行语义相关性重排序
+- 支持配置开关：agentscope.rerank.enabled=false时跳过
+- 失败降级：API异常时返回原始顺序，不阻断检索链路
 
-**章节来源**
-- [ConfidenceTool.java:36-91](file://src/main/java/com/tutorial/offerpilot/agent/tool/ConfidenceTool.java#L36-91)
-- [ConfidenceResult.java:18-34](file://src/main/java/com/tutorial/offerpilot/dto/tool/ConfidenceResult.java#L18-34)
+#### 技术实现细节
 
-### 知识缺口检测工具（KnowledgeGapTool）
+**分数归一化处理**
+- 新增normalizeCosineScore(float distance)方法：score = 1 - distance/2
+- 将Milvus余弦距离转换为相似度分数
 
-**新增** 结合RAG检索和词法对比，智能检测候选人回答中的知识盲区。
+**元数据过滤增强**
+- SearchRequest.buildFilterExpr()恢复过滤逻辑
+- 支持category、difficulty、position等多维度过滤
+- 多个条件用&&拼接，提升检索精度
 
-#### 核心功能
-- **标准答案检索**：通过KnowledgeBaseService检索相关问题的优秀答案
-- **术语提取与对比**：使用正则表达式提取关键概念并进行词法对比
-- **覆盖率计算**：量化分析候选人的知识点覆盖程度
-- **语义复核指导**：提供LLM进行语义级别判断的详细指导
-
-#### 技术实现
-- 集成KnowledgeBaseService进行智能检索
-- 使用复杂的正则表达式模式匹配专业术语
-- 支持可配置的topK参数控制检索数量
-
-**章节来源**
-- [KnowledgeGapTool.java:40-88](file://src/main/java/com/tutorial/offerpilot/agent/tool/KnowledgeGapTool.java#L40-88)
-- [KnowledgeGapResult.java:18-31](file://src/main/java/com/tutorial/offerpilot/dto/tool/KnowledgeGapResult.java#L18-31)
-
-### 优先级排序工具（PriorityRankTool）
-
-**新增** 基于高频考点和低掌握度的量化算法，为学习者提供个性化的学习优先级建议。
-
-#### 核心功能
-- **掌握度数据整合**：从KnowledgeMasteryRepository获取用户各知识点掌握情况
-- **考频统计分析**：通过SearchAnalyticsService分析各知识点的出现频率
-- **优先级计算公式**：priority = frequency × (100 - score)
-- **紧急度分级**：根据优先级分数划分HIGH/MEDIUM/LOW三个等级
-
-#### 应用场景
-- 个性化学习计划制定
-- 薄弱知识点精准定位
-- 学习效率优化建议
+**容错与降级机制**
+- 任一路径异常不影响其他路径执行
+- Rerank API失败时自动回退到原始顺序
+- 支持配置化的topN和scoreThreshold阈值
 
 **章节来源**
-- [PriorityRankTool.java:32-73](file://src/main/java/com/tutorial/offerpilot/agent/tool/PriorityRankTool.java#L32-73)
-- [PriorityResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/PriorityResult.java#L18-46)
-
-### 简历质量评估工具（ResumeQualityTool）
-
-**新增** 对简历进行多维度的质量检查，包括技能层次分类、量化数据覆盖度和技术栈罗列问题检测。
-
-#### 核心功能
-- **技能层次分析**：检测技能描述是否按熟练度分类（精通/熟悉/了解）
-- **量化数据检测**：识别项目描述中的量化指标（百分比、倍数、金额等）
-- **技术栈罗列检查**：发现仅罗列技术栈而缺乏业务成果的问题
-- **原始数据收集**：提供详细的原始文本片段供LLM进行深度分析
-
-#### 检查维度
-- 技能描述的层次性和专业性
-- 项目成果的量化和具体化
-- 技术能力与业务价值的关联度
-
-**章节来源**
-- [ResumeQualityTool.java:31-63](file://src/main/java/com/tutorial/offerpilot/agent/tool/ResumeQualityTool.java#L31-63)
-- [QualityCheckResult.java:18-46](file://src/main/java/com/tutorial/offerpilot/dto/tool/QualityCheckResult.java#L18-46)
-
-### STAR方法验证工具（StarCheckTool）
-
-**新增** 专门用于验证简历中项目经历是否符合STAR法则（情境-任务-行动-结果）的完整性要求。
-
-#### 核心功能
-- **经历段落分割**：使用正则表达式智能识别和分割项目/工作经历段落
-- **STAR要素检测**：为每段经历提供S/T/A/R四要素的检查指导
-- **完整性评估**：标记缺失的STAR要素并提供修复建议
-- **结构化输出**：返回标准化的检查结果供LLM进一步分析
-
-#### STAR法则应用
-- **Situation（情境）**：项目背景和环境描述
-- **Task（任务）**：承担的具体职责和目标
-- **Action（行动）**：采取的具体措施和方法
-- **Result（结果）**：取得的成果和影响
-
-**章节来源**
-- [StarCheckTool.java:29-33](file://src/main/java/com/tutorial/offerpilot/agent/tool/StarCheckTool.java#L29-33)
-- [StarCheckResult.java:18-43](file://src/main/java/com/tutorial/offerpilot/dto/tool/StarCheckResult.java#L18-43)
-
-### 时间分配分析工具（TimeAllocationTool）
-
-**新增** 根据回答文本长度估算面试时间分配，评估回答的合理性和充分性。
-
-#### 核心功能
-- **时长估算算法**：基于中文正常语速（250字/分钟）进行时长计算
-- **合理性评估**：判断回答时长是否在合理范围内（30-180秒）
-- **多维度统计**：统计过短、过长和适中的题目数量
-- **改进建议生成**：为每道题提供具体的时间管理建议
-
-#### 评估标准
-- **GOOD**：60-120秒，回答充分且精炼
-- **ACCEPTABLE**：30-60秒或120-180秒，基本可接受
-- **TOO_SHORT**：少于30秒，回答过于简略
-- **TOO_LONG**：超过180秒，回答过于冗长
-
-**章节来源**
-- [TimeAllocationTool.java:37-110](file://src/main/java/com/tutorial/offerpilot/agent/tool/TimeAllocationTool.java#L37-110)
-- [TimeAllocationResult.java:18-51](file://src/main/java/com/tutorial/offerpilot/dto/tool/TimeAllocationResult.java#L18-51)
-
-### 六维分析工具的协作机制
-
-**新增** 六维分析工具通过统一的架构设计，实现了高效的协作和信息共享。
-
-#### 协作模式
-- **统一接口规范**：所有工具都遵循相同的@Tool注解规范和DTO返回格式
-- **LLM指导文本**：每个工具都返回专门的指导文本，引导LLM进行深度分析
-- **结构化数据输出**：便于后续的数据分析和可视化展示
-- **可扩展架构**：支持未来新增更多分析维度的工具
-
-#### 集成方式
-- 工具通过Spring的@Component注解自动注册
-- 在AgentFactory的buildToolkit()方法中进行统一管理
-- 支持在子Agent的工具白名单中灵活配置访问权限
-
-**章节来源**
-- [AgentFactory.java:192-277](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L192-277)
+- [KnowledgeBaseService.java:258-280](file://src/main/java/com/tutorial/offerpilot/service/KnowledgeBaseService.java#L258-L280)
+- [VectorSearchService.java:134-185](file://src/main/java/com/tutorial/offerpilot/service/VectorSearchService.java#L134-L185)
+- [RerankerService.java:111-151](file://src/main/java/com/tutorial/offerpilot/service/RerankerService.java#L111-L151)

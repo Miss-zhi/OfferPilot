@@ -9,8 +9,9 @@ OfferPilot 是面向智能求职辅导/面试场景的 AI 应用平台，基于 
 | 层 | 技术 |
 |----|------|
 | 后端框架 | Spring Boot 3.2.5（Servlet MVC） |
-| AI Agent 框架 | AgentScope Java v2（ReActAgent） |
-| 数据库 | MySQL 8.0（JPA + Hibernate） |
+| 前端框架 | React 19 + Ant Design 6 + Vite |
+| AI Agent 框架 | AgentScope Java v2（HarnessAgent） |
+| 数据库 | MySQL 8.0（JPA + Hibernate，H2 兼容） |
 | 缓存/限流 | Redis 7（Spring Data Redis） |
 | 向量数据库 | Milvus 2.4.6（RAG 检索） |
 | 对象存储 | MinIO（Milvus 依赖 + 文件上传） |
@@ -34,9 +35,9 @@ src/main/java/com/tutorial/offerpilot/
 │   └── ingestion/                   # 异步入库管道（文档解析/分块/Embedding）
 ├── agent/                           # AgentScope 框架层
 │   ├── AgentFactory.java           # Agent 构建 + 池管理（Caffeine）
-│   ├── tool/                       # @Tool 工具类（13 个本地工具）
+│   ├── tool/                       # @Tool 工具类（10 个本地工具）
 │   └── middleware/                 # MiddlewareBase（TokenMonitor, CostControl）
-├── entity/                          # JPA 实体（18 张表）
+├── entity/                          # JPA 实体（17 张表）
 ├── repository/                      # Spring Data JPA Repository
 ├── dto/                             # 请求/响应 DTO（含 @Valid 注解）
 │   ├── auth/                        # 认证相关 DTO
@@ -50,14 +51,13 @@ src/main/java/com/tutorial/offerpilot/
 ## 关键约定
 
 - 所有 Controller 方法返回 `ApiResponse<T>`
-- Entity 继承 `BaseEntity`（id, createdAt, updatedAt, createBy, updateBy）
+- Entity 继承 `BaseEntity`（id, createdAt, updatedAt）
 - Repository 继承 `JpaRepository<Entity, Long>`
 - @Tool 工具方法返回 POJO（禁止返回 String JSON）
-- 测试数据 `create_by = 'test'` 或 `id >= 99000`
-- 基础设施通过 Docker Compose 本地运行（`docker-compose.yml`）
+- 基础设施通过 Docker Compose 本地运行（`docker-compose.yml`，仅含基础设施容器）
 
 ## 数据库
 
 - 库名：`offerpilot`
-- 主表：app_user, kb_knowledge_base, kb_document, kb_chunk, interview_session, user_memory 等
+- 主表：op_user, kb_knowledge_base, kb_document, kb_chunk, interview_session, chat_session, chat_message, user_memory, model_config, model_name, token_blacklist 等
 - ORM：Spring Data JPA（非 MyBatis）
