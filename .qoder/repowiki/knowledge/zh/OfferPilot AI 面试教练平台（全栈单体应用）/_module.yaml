@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: OfferPilot AI 面试辅导平台（单体 Spring Boot + AgentScope v2）
+title: OfferPilot AI 面试教练平台（全栈单体应用）
 scope: []
 source_files: []
 depends_on: []

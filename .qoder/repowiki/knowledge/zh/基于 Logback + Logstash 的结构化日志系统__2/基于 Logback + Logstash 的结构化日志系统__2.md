@@ -6,91 +6,33 @@ scope:
     - '**'
 source_files:
     - src/main/resources/logback-spring.xml
-    - src/main/resources/application.yml
-    - src/main/resources/application-dev.yml
-    - src/main/resources/application-prod.yml
-    - src/main/java/com/tutorial/offerpilot/exception/GlobalExceptionHandler.java
-    - src/main/java/com/tutorial/offerpilot/controller/AuthController.java
-    - src/main/java/com/tutorial/offerpilot/agent/tool/MockInterviewTool.java
 ---
 
-## 日志系统概述
+## 1. 使用的系统与框架
+- 日志实现：Logback（Spring Boot 默认）
+- 结构化输出：net.logstash.logback.encoder.LogstashEncoder，将文件日志输出为 JSON（Logstash/ELK 友好格式）
+- 控制台与文件双 Appender，生产环境仅写文件，开发/测试环境同时输出到控制台
+- 异步写入：通过 AsyncAppender 包裹 RollingFileAppender，队列大小 512、永不阻塞、丢弃阈值关闭
 
-OfferPilot 项目采用 Spring Boot 内置的 Logback 作为日志框架，结合 Logstash Encoder 实现结构化日志输出，支持多环境配置和异步文件滚动。
+## 2. 核心配置文件
+- src/main/resources/logback-spring.xml：唯一日志配置入口，定义 Appender、RollingPolicy、Profile 级别、MDC 字段注入
+- application.yml / application-dev.yml / application-prod.yml：通过 logging.file.path、logging.file.name、spring.application.name、spring.profiles.active 等属性驱动 Logback 行为
 
-## 核心架构
+## 3. 架构与约定
+- 多 Appender 分层
+  - CONSOLE：彩色人类可读格式，仅 dev/test 启用
+  - FILE：按天滚动 + 单文件最大 10MB，保留 7 天、总容量 500MB，JSON 结构包含自定义字段 app、env 以及 MDC 中的 userId、sessionId、traceId
+  - ASYNC_FILE：对 FILE 的异步封装，避免 I/O 阻塞业务线程
+- Profile 分级策略
+  - dev,test：root=INFO，com.tutorial.offerpilot=DEBUG，org.springframework.security=DEBUG，org.hibernate.SQL=WARN
+  - prod：root=INFO，应用包与 Security 均降至 INFO/WARN，减少 IO 压力
+- MDC 上下文字段：通过 includeMdcKeyName 声明式把 userId、sessionId、traceId 打入每条 JSON 日志，便于跨服务链路追踪
+- 编码规范：业务代码统一使用 Lombok @Slf4j 注解生成 logger，以 log.info/warn/error/debug 调用；关键路径（Agent 构建、模型调用、成本/Token 监控）集中记录结构化参数（agent、session、model、token 用量等）
 
-### 日志框架与依赖
-- 框架: Logback (Spring Boot 默认)
-- 编码器: LogstashEncoder (net.logstash.logback.encoder.LogstashEncoder)
-- 注解: Lombok @Slf4j
-- MDC支持: 包含 userId、sessionId、traceId 字段
-
-### 日志输出目标
-1. 控制台输出 (CONSOLE): 开发环境使用彩色格式化输出
-2. 异步文件输出 (ASYNC_FILE): 生产环境主要输出目标
-3. 滚动策略: 按天滚动 + 大小限制 (10MB) + 保留7天 + 总大小500MB上限
-
-### 配置文件结构
-- logback-spring.xml: 主日志配置，定义 Appender、Pattern、Profile
-- application.yml: 基础日志级别配置
-- application-dev.yml: 开发环境 DEBUG 级别
-- application-prod.yml: 生产环境 INFO/WARN 级别
-
-## 日志级别策略
-
-### 开发环境 (dev/test)
-- Root: INFO
-- 业务包: DEBUG
-- Spring Security: DEBUG
-- Spring Web: INFO
-- Hibernate SQL: WARN
-
-### 生产环境 (prod)
-- Root: INFO
-- 业务包: INFO
-- Spring Security: WARN
-- 仅文件输出，无控制台
-
-## 结构化日志规范
-
-### 日志格式
-- 控制台: %d{HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) - %msg%n
-- 文件: Logstash JSON 格式，包含自定义字段 app、env 和 MDC 字段
-
-### 日志内容规范
-- 使用参数化日志：log.info("Login request: username={}", username)
-- 关键业务操作记录：用户注册、登录、工具调用等
-- 异常处理：统一在 GlobalExceptionHandler 中记录
-- Agent 工具调用：详细记录输入输出参数
-
-### MDC 上下文
-配置文件声明了三个 MDC 字段用于结构化追踪：
-- userId: 用户标识
-- sessionId: 会话标识
-- traceId: 请求追踪ID
-
-## 使用模式
-
-### 标准日志注入
-@Slf4j
-public class XxxService {
-    public void method() {
-        log.info("业务操作: param={}", value);
-        log.warn("警告信息: detail={}", detail);
-        log.error("错误信息", exception);
-    }
-}
-
-### 日志使用场景
-- Controller层: 记录HTTP请求入口参数
-- Service层: 记录业务逻辑执行状态
-- Agent Tools: 记录AI工具调用详情
-- Middleware: 记录成本控制和Token监控信息
-- Exception处理: 统一异常日志记录
-
-## 性能优化
-- 异步Appender: queueSize=512, neverBlock=true
-- 文件滚动: TimeBasedRollingPolicy + SizeAndTimeBasedFNATP
-- 压缩存储: .gz 格式归档
-- 容量控制: maxHistory=7, totalSizeCap=500MB
+## 4. 开发者应遵循的规则
+- 使用 @Slf4j 注入 logger，不要手写 LoggerFactory.getLogger(...)
+- 日志消息采用占位符 {} 传参，禁止字符串拼接
+- 在需要关联请求上下文的类中，于入口方法前向 MDC 放入 userId、sessionId、traceId，确保 JSON 日志可被聚合检索
+- 控制日志级别：正常流程用 info，异常/降级用 warn/error，调试信息用 debug 且仅在 dev 可见
+- 避免打印敏感数据（密码、完整 token），只输出必要标识
+- 新增外部依赖（如 MCP、向量库）时，在其初始化/错误分支补充结构化日志，保持与现有风格一致

@@ -322,7 +322,7 @@ CheckBehavior --> DENY["DENY → 拒绝"]
 - **动态调整**：支持运行时修改权限规则
 
 **章节来源**
-- [AgentFactory.java:315-343](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L315-L343)
+- [AgentFactory.java:315-343](file://src/main/java/com/tutorial/offerpilot/agent/AgentFactory.java#L315-343)
 
 ## RAG 召回策略升级
 
